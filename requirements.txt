@@ -1,0 +1,3 @@
+lightning-sdk
+requests
+python-dotenv
