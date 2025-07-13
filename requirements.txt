@@ -1,3 +1,5 @@
 lightning-sdk
 requests
 python-dotenv
+flask
+gunicorn
