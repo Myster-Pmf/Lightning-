@@ -1,8 +1,10 @@
 import os
 import threading
 import time
+import subprocess
+import sys
 from datetime import datetime
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, request
 from lightning_sdk import Studio, Machine
 import requests
 from dotenv import load_dotenv
@@ -97,10 +99,10 @@ def monitor_loop():
                 continue
 
             status = studio.status
-            debug_print(f"Current status: {status}")
+            debug_print(f"Current status: {str(status)}")
             now = datetime.now()
 
-            if status == "running":
+            if str(status) == "running":
                 consecutive_errors = 0
                 if not running_since:
                     running_since = now
@@ -126,37 +128,78 @@ def monitor_loop():
                         debug_print(f"Error during stop/start cycle: {stop_start_error}")
                         log_event("cycle_error", f"Stop/start error: {stop_start_error}")
 
-            elif status == "stopped":
+            elif str(status) == "stopped":
                 consecutive_errors = 0
                 crash_count += 1
                 debug_print(f"Studio stopped unexpectedly. Crash #{crash_count}")
                 log_event("crash", f"Unexpected stop. Crash #{crash_count}")
                 log_event("pre_start", f"Restarting after crash #{crash_count}")
                 
+                # Use subprocess to avoid SystemExit killing the main process
+                import subprocess
+                import sys
+                
                 try:
-                    debug_print("Attempting to start machine...")
-                    result = studio.start(Machine.CPU)
-                    debug_print(f"Start result: {result}")
-                    log_event("post_start", f"Studio restarted after crash #{crash_count}")
-                    running_since = datetime.now()
+                    debug_print("Attempting to start machine using subprocess...")
+                    # Create a simple Python script to start the studio
+                    start_script = f"""
+import sys
+sys.path.insert(0, '/opt/venv/lib/python3.12/site-packages')
+from lightning_sdk import Studio, Machine
+import os
+
+studio = Studio(
+    "{os.getenv('STUDIO_NAME')}",
+    teamspace="{os.getenv('TEAMSPACE')}",
+    user="{os.getenv('USERNAME')}",
+    create_ok=True
+)
+
+try:
+    result = studio.start(Machine.CPU)
+    print(f"SUCCESS: {{result}}")
+    sys.exit(0)
+except Exception as e:
+    print(f"ERROR: {{e}}")
+    sys.exit(1)
+"""
+                    
+                    with open('/tmp/start_studio.py', 'w') as f:
+                        f.write(start_script)
+                    
+                    result = subprocess.run([sys.executable, '/tmp/start_studio.py'], 
+                                          capture_output=True, text=True, timeout=60)
+                    
+                    if result.returncode == 0:
+                        debug_print(f"Subprocess start successful: {result.stdout}")
+                        log_event("post_start", f"Studio restarted after crash #{crash_count}")
+                        running_since = datetime.now()
+                    else:
+                        debug_print(f"Subprocess start failed: {result.stderr}")
+                        log_event("start_error", f"Subprocess start failed: {result.stderr}")
+                        
+                except subprocess.TimeoutExpired:
+                    debug_print("Start operation timed out")
+                    log_event("start_timeout", "Start operation timed out")
                 except Exception as start_error:
                     debug_print(f"Failed to start machine: {start_error}")
                     log_event("start_error", f"Failed to start: {start_error}")
-                    time.sleep(30)  # Wait longer before retrying
+                    
+                time.sleep(30)  # Wait longer before retrying
 
-            elif status == "starting":
+            elif str(status) == "starting":
                 debug_print("Studio is starting...")
                 log_event("starting", "Studio is in starting state")
                 consecutive_errors = 0
                 
-            elif status == "stopping":
+            elif str(status) == "stopping":
                 debug_print("Studio is stopping...")
                 log_event("stopping", "Studio is in stopping state")
                 consecutive_errors = 0
                 
             else:
-                debug_print(f"Unknown studio state: {status}")
-                log_event("unknown", f"Unknown studio state: {status}")
+                debug_print(f"Unknown studio state: {str(status)}")
+                log_event("unknown", f"Unknown studio state: {str(status)}")
 
         except Exception as e:
             consecutive_errors += 1
@@ -186,7 +229,8 @@ def debug_info():
     
     if studio:
         try:
-            info["studio_status"] = studio.status
+            status = studio.status
+            info["studio_status"] = str(status)  # Convert to string
         except Exception as e:
             info["studio_status_error"] = str(e)
     
@@ -200,20 +244,299 @@ def status_check():
     
     try:
         status = studio.status
-        return jsonify({"status": status})
+        return jsonify({"status": str(status)})  # Convert to string
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# === Manual Start Route ===
+# === Web Terminal Route ===
+@app.route("/terminal")
+def terminal():
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Lightning AI Terminal</title>
+        <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+        <style>
+            .terminal {
+                background: #1a1a1a;
+                color: #00ff00;
+                font-family: 'Courier New', monospace;
+                padding: 20px;
+                border-radius: 8px;
+                height: 500px;
+                overflow-y: auto;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+            }
+            .command-input {
+                background: #2a2a2a;
+                color: #00ff00;
+                border: 1px solid #444;
+                font-family: 'Courier New', monospace;
+                padding: 10px;
+                width: 100%;
+                border-radius: 4px;
+            }
+            .command-input:focus {
+                outline: none;
+                border-color: #00ff00;
+            }
+            .preset-btn {
+                background: #333;
+                color: #00ff00;
+                border: 1px solid #555;
+                padding: 5px 10px;
+                margin: 2px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-family: 'Courier New', monospace;
+                font-size: 12px;
+            }
+            .preset-btn:hover {
+                background: #444;
+            }
+        </style>
+    </head>
+    <body class="bg-gray-900 text-white p-4">
+        <div class="max-w-6xl mx-auto">
+            <h1 class="text-3xl mb-4 font-bold">🖥️ Lightning AI Terminal</h1>
+            
+            <div class="mb-4">
+                <a href="/" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded mr-2">Dashboard</a>
+                <a href="/debug" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded mr-2">Debug</a>
+                <a href="/logs" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded">Logs</a>
+            </div>
+
+            <div class="mb-4">
+                <h3 class="text-lg mb-2">Quick Commands:</h3>
+                <div class="flex flex-wrap">
+                    <button class="preset-btn" onclick="runPreset('lightning --help')">lightning --help</button>
+                    <button class="preset-btn" onclick="runPreset('lightning login --help')">lightning login --help</button>
+                    <button class="preset-btn" onclick="runPreset('lightning list studios')">lightning list studios</button>
+                    <button class="preset-btn" onclick="runPreset('lightning status')">lightning status</button>
+                    <button class="preset-btn" onclick="runPreset('whoami')">whoami</button>
+                    <button class="preset-btn" onclick="runPreset('env | grep LIGHTNING')">env | grep LIGHTNING</button>
+                    <button class="preset-btn" onclick="runPreset('python -c \"from lightning_sdk import Studio; print(Studio.list())\"')">List Studios (Python)</button>
+                    <button class="preset-btn" onclick="runPreset('python -c \"from lightning_sdk import Studio, Machine; s = Studio(\'my-studio\', teamspace=\'Vision-model\', user=\'oyonhossainp\'); print(s.status)\"')">Check Studio Status</button>
+                    <button class="preset-btn" onclick="runPreset('python -c \"from lightning_sdk import Studio, Machine; s = Studio(\'my-studio\', teamspace=\'Vision-model\', user=\'oyonhossainp\'); print(s.start(Machine.CPU))\"')">Start Studio</button>
+                </div>
+            </div>
+
+            <div class="terminal" id="terminal">
+                Lightning AI Terminal Ready
+                Type commands below or use the preset buttons above.
+                
+                Current Environment:
+                - STUDIO_NAME: my-studio
+                - TEAMSPACE: Vision-model  
+                - USERNAME: oyonhossainp
+                
+                =====================================================
+                
+            </div>
+
+            <div class="mt-4 flex">
+                <input type="text" id="commandInput" class="command-input flex-1" placeholder="Enter command..." onkeypress="handleKeyPress(event)">
+                <button onclick="runCommand()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded ml-2">Run</button>
+                <button onclick="clearTerminal()" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded ml-2">Clear</button>
+            </div>
+
+            <div class="mt-4 text-sm text-gray-400">
+                <p><strong>Tips:</strong></p>
+                <ul class="list-disc list-inside">
+                    <li>Use 'lightning login' if you get authentication errors</li>
+                    <li>Try 'lightning list studios' to see available studios</li>
+                    <li>Python commands can access the Lightning SDK directly</li>
+                    <li>Check environment variables with 'env | grep LIGHTNING'</li>
+                </ul>
+            </div>
+        </div>
+
+        <script>
+            function appendToTerminal(text) {
+                const terminal = document.getElementById('terminal');
+                terminal.textContent += text + '\\n';
+                terminal.scrollTop = terminal.scrollHeight;
+            }
+
+            function runPreset(command) {
+                document.getElementById('commandInput').value = command;
+                runCommand();
+            }
+
+            function runCommand() {
+                const input = document.getElementById('commandInput');
+                const command = input.value.trim();
+                
+                if (!command) return;
+                
+                appendToTerminal('$ ' + command);
+                input.value = '';
+                
+                // Show loading
+                appendToTerminal('Executing...');
+                
+                fetch('/terminal/exec', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ command: command })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // Remove the "Executing..." line
+                    const terminal = document.getElementById('terminal');
+                    const lines = terminal.textContent.split('\\n');
+                    lines.pop(); // Remove empty line
+                    lines.pop(); // Remove "Executing..."
+                    terminal.textContent = lines.join('\\n') + '\\n';
+                    
+                    if (data.success) {
+                        if (data.stdout) {
+                            appendToTerminal(data.stdout);
+                        }
+                        if (data.stderr) {
+                            appendToTerminal('STDERR: ' + data.stderr);
+                        }
+                        appendToTerminal('Exit code: ' + data.returncode);
+                    } else {
+                        appendToTerminal('ERROR: ' + data.error);
+                    }
+                    appendToTerminal('');
+                })
+                .catch(error => {
+                    appendToTerminal('Network error: ' + error);
+                    appendToTerminal('');
+                });
+            }
+
+            function handleKeyPress(event) {
+                if (event.key === 'Enter') {
+                    runCommand();
+                }
+            }
+
+            function clearTerminal() {
+                document.getElementById('terminal').textContent = 'Terminal cleared.\\n\\n';
+            }
+
+            // Focus on input when page loads
+            document.addEventListener('DOMContentLoaded', function() {
+                document.getElementById('commandInput').focus();
+            });
+        </script>
+    </body>
+    </html>
+    """)
+
+# === Terminal Command Execution ===
+@app.route("/terminal/exec", methods=["POST"])
+def terminal_exec():
+    try:
+        data = request.get_json()
+        command = data.get("command", "").strip()
+        
+        if not command:
+            return jsonify({"success": False, "error": "No command provided"})
+        
+        # Security check - basic command filtering
+        dangerous_commands = ["rm -rf", "sudo", "passwd", "shutdown", "reboot", "halt", "init"]
+        if any(dangerous in command.lower() for dangerous in dangerous_commands):
+            return jsonify({"success": False, "error": "Command not allowed for security reasons"})
+        
+        # Set up environment
+        env = os.environ.copy()
+        env.update({
+            "STUDIO_NAME": os.getenv("STUDIO_NAME", "my-studio"),
+            "TEAMSPACE": os.getenv("TEAMSPACE", "Vision-model"),
+            "USERNAME": os.getenv("USERNAME", "oyonhossainp"),
+            "PYTHONPATH": "/opt/venv/lib/python3.12/site-packages",
+        })
+        
+        # Execute command
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=env,
+                cwd="/app"
+            )
+            
+            return jsonify({
+                "success": True,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "returncode": result.returncode
+            })
+            
+        except subprocess.TimeoutExpired:
+            return jsonify({"success": False, "error": "Command timed out (30s limit)"})
+            
+        except Exception as e:
+            return jsonify({"success": False, "error": f"Execution error: {str(e)}"})
+            
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Request error: {str(e)}"})
+
+# === Test Authentication Route ===
+@app.route("/test-auth")
+def test_auth():
+    try:
+        from lightning_sdk import Studio
+        
+        # Just try to list studios
+        studios = Studio.list()
+        return jsonify({"success": True, "studios": [str(s) for s in studios]})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 @app.route("/start")
 def manual_start():
     if not studio:
         return jsonify({"error": "Studio not initialized"}), 500
     
     try:
-        result = studio.start(Machine.CPU)
-        log_event("manual_start", "Manual start triggered")
-        return jsonify({"result": "started", "details": str(result)})
+        # Use a separate thread to avoid SystemExit killing the worker
+        import threading
+        import queue
+        
+        result_queue = queue.Queue()
+        
+        def start_studio():
+            try:
+                result = studio.start(Machine.CPU)
+                result_queue.put(("success", result))
+            except SystemExit as e:
+                result_queue.put(("system_exit", f"SystemExit: {e}"))
+            except Exception as e:
+                result_queue.put(("error", str(e)))
+        
+        thread = threading.Thread(target=start_studio)
+        thread.start()
+        thread.join(timeout=30)  # 30 second timeout
+        
+        if thread.is_alive():
+            return jsonify({"error": "Start operation timed out"}), 408
+        
+        if result_queue.empty():
+            return jsonify({"error": "No result from start operation"}), 500
+        
+        result_type, result_data = result_queue.get()
+        
+        if result_type == "success":
+            log_event("manual_start", "Manual start triggered successfully")
+            return jsonify({"result": "started", "details": str(result_data)})
+        elif result_type == "system_exit":
+            log_event("manual_start_system_exit", f"Manual start system exit: {result_data}")
+            return jsonify({"error": f"Start failed with system exit: {result_data}"}), 500
+        else:
+            log_event("manual_start_error", f"Manual start failed: {result_data}")
+            return jsonify({"error": result_data}), 500
+            
     except Exception as e:
         log_event("manual_start_error", f"Manual start failed: {e}")
         return jsonify({"error": str(e)}), 500
@@ -302,6 +625,7 @@ def dashboard():
             <a href="/debug" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded mr-2">Debug Info</a>
             <a href="/status" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded mr-2">Status Check</a>
             <a href="/start" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded mr-2">Manual Start</a>
+            <a href="/terminal" class="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded mr-2">Terminal</a>
             <a href="/logs" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded">View Logs</a>
         </div>
 
