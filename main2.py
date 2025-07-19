@@ -78,7 +78,22 @@ python_interpreter = PythonInterpreter()
 
 # === Enhanced Logging Function ===
 def log_event(event_type, note="", type="event", metadata=None):
-    debug_print(f"Logging event: {event_type} - {note}")
+    """
+    Sends a log entry to Supabase.
+    *** SUPABASE DEBUGGING NOTE ***
+    If logs are not appearing, the most likely cause is your table's Row Level Security (RLS).
+    1. Go to your Supabase project -> Authentication -> Policies.
+    2. Select your `studio_logs` table.
+    3. Ensure you have a policy for INSERT that allows access. For a simple, secure setup,
+       you can create a policy "Enable insert for authenticated users" using the template.
+    4. Alternatively, for quick testing (less secure), you can create a policy "Enable insert for all users".
+    5. Make sure you are using your `service_role` key for the SUPABASE_API_KEY in your .env file to bypass RLS entirely.
+    """
+    debug_print(f"Logging to Supabase: {event_type} - {note}")
+    if not SUPABASE_URL or not SUPABASE_API_KEY:
+        debug_print("Supabase URL or API Key is not set. Skipping log.")
+        return
+
     payload = {
         "timestamp": datetime.now().isoformat(),
         "event_type": event_type,
@@ -94,10 +109,12 @@ def log_event(event_type, note="", type="event", metadata=None):
     }
     try:
         r = requests.post(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}", json=payload, headers=headers, timeout=10)
+        # Always print status to help debug RLS issues
+        debug_print(f"Supabase POST response: {r.status_code} - {r.text}")
         if r.status_code not in [200, 201]:
-            debug_print(f"Log Error: {r.status_code} - {r.text}")
+            debug_print(f"!!! Supabase Log Error: {r.status_code} - {r.text}")
     except Exception as e:
-        debug_print(f"Log Exception: {e}")
+        debug_print(f"!!! Supabase Log Exception: {e}")
 
 # === Get Real Studio Status ===
 def get_studio_status():
@@ -107,20 +124,29 @@ def get_studio_status():
     except Exception as e:
         return "error", str(e)
 
-# === Supabase Health Check ===
+# === Supabase Health Check (with Write Test) ===
 def check_supabase_health():
     start_time = time.time()
+    headers = {"apikey": SUPABASE_API_KEY, "Authorization": f"Bearer {SUPABASE_API_KEY}", "Content-Type": "application/json"}
+    test_payload = {"event_type": "health_check", "note": "testing write access"}
+    
     try:
-        headers = {"apikey": SUPABASE_API_KEY, "Authorization": f"Bearer {SUPABASE_API_KEY}"}
-        # Check read access
-        r = requests.get(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?limit=1", headers=headers, timeout=10)
-        if r.status_code == 200:
-            latency = (time.time() - start_time) * 1000
-            return {"status": "ok", "message": "Supabase connection successful.", "latency_ms": round(latency)}
-        else:
-            return {"status": "error", "message": f"Failed to connect to Supabase. Status: {r.status_code} - {r.text}"}
+        # 1. Test Write
+        r_write = requests.post(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}", json=test_payload, headers=headers, params={"select": "id"}, timeout=10)
+        if r_write.status_code != 201:
+            return {"status": "error", "message": f"Write test failed. Status: {r_write.status_code} - {r_write.text}. Check your RLS policies for INSERT."}
+        
+        # 2. Test Delete (cleanup)
+        inserted_id = r_write.json()[0]['id']
+        r_delete = requests.delete(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?id=eq.{inserted_id}", headers=headers, timeout=10)
+        if r_delete.status_code != 204:
+             return {"status": "warning", "message": f"Write test passed, but failed to delete test record (ID: {inserted_id}). Please delete it manually."}
+
+        latency = (time.time() - start_time) * 1000
+        return {"status": "ok", "message": "Supabase connection and write access successful.", "latency_ms": round(latency)}
+
     except Exception as e:
-        return {"status": "error", "message": f"Exception connecting to Supabase: {e}"}
+        return {"status": "error", "message": f"Exception during Supabase health check: {e}"}
 
 # === Configuration & Debug Info ===
 def get_debug_info():
@@ -137,10 +163,9 @@ def get_debug_info():
     info["supabase_health"] = check_supabase_health()
     return info
 
-# === Monitor Logic ===
+# === Monitor Logic (MANUAL CONTROL ONLY) ===
 def monitor_loop():
-    debug_print("Starting monitor loop")
-    running_since = None
+    debug_print("Starting monitor loop (Manual Control Mode)")
     last_known_status = None
 
     while True:
@@ -150,57 +175,25 @@ def monitor_loop():
                 time.sleep(60)
                 continue
 
-            now = datetime.now()
             status, error = get_studio_status()
 
-            # Log every status check
+            # Log every status check as a heartbeat
             log_event("status_check", f"Current status: {status}", "heartbeat", {"status": status, "error": error})
 
             if status != last_known_status:
                 log_event("state_change", f"Status changed from '{last_known_status}' to '{status}'", "event", {"from": last_known_status, "to": status})
                 last_known_status = status
-
-            if status == "running":
-                if not running_since:
-                    running_since = now
-                    log_event("running_start", "Studio session started.", "event", {"start_time": now.isoformat()})
-                
-                elapsed = (now - running_since).total_seconds()
-                if elapsed >= 3 * 60 * 60:
-                    debug_print(f"Scheduled restart after {elapsed/3600:.1f} hours.")
-                    log_event("scheduled_stop_begin", f"Stopping for 3hr cycle.", "event")
-                    studio.stop()
-                    log_event("scheduled_stop_end", "Studio stopped for 3hr cycle.", "event")
-                    time.sleep(30)
-                    log_event("scheduled_start_begin", "Restarting after 3hr cycle.", "event")
-                    studio.start(Machine.CPU)
-                    log_event("scheduled_start_end", "Restart command sent after 3hr cycle.", "event")
-                    running_since = datetime.now()
-
-            elif status == "stopped":
-                if running_since: # It was running before, so this is a session end
-                    log_event("running_end", "Studio session ended.", "event", {"end_time": now.isoformat()})
-                running_since = None
-                
-                debug_print("Studio is stopped. Attempting restart.")
-                log_event("auto_restart_begin", "Attempting to restart stopped studio.", "event")
-                try:
-                    studio.start(Machine.CPU)
-                    log_event("auto_restart_end", "Restart command sent for stopped studio.", "event")
-                except Exception as start_error:
-                    log_event("auto_restart_error", f"Failed to send restart command: {start_error}", "error")
-                time.sleep(60) # Wait a bit after a restart attempt
-
-            else: # starting, stopping, restarting, error, etc.
-                running_since = None # Not considered a stable running session
+            
+            # NO AUTOMATIC ACTIONS ARE TAKEN.
+            # The loop now only serves to log status to Supabase for the dashboard graph.
 
         except Exception as e:
             debug_print(f"CRITICAL: Exception in monitor loop: {e}\n{traceback.format_exc()}")
             log_event("monitor_error", f"Exception in monitor loop: {e}", "error")
         
-        time.sleep(60)
+        time.sleep(60) # Check and log status every minute
 
-# === HTML Templates ===
+# === HTML Templates (Self-contained) ===
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -396,36 +389,17 @@ DASHBOARD_HTML = """
         }
         function closeModal() { modal.classList.add('hidden'); clearInterval(progressInterval); }
 
-        async function checkProgress(startId) {
-            const response = await fetch(`/start/progress/${startId}`);
-            const data = await response.json();
-            if (data.status === 'starting') {
-                modalMessage.textContent = `Please wait... (${Math.round(data.elapsed_seconds)}s elapsed)`;
-            } else if (data.status === 'completed') {
-                clearInterval(progressInterval);
-                const actions = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
-                if (data.success) {
-                    showModal("✅ Success!", "Studio started successfully.", actions);
-                } else {
-                    showModal("❌ Error!", `Failed to start: ${data.error}`, actions);
-                }
-                fetchData();
-            }
-        }
-
         document.getElementById('manualStartBtn').addEventListener('click', async () => {
-            showModal("Starting Studio...", "Please wait while the machine boots up.", [], true);
+            showModal("Starting Studio...", "Sending start command...", [], true);
             const response = await fetch('/start', { method: 'POST' });
             const data = await response.json();
-            
-            if (data.start_id) {
-                progressInterval = setInterval(() => checkProgress(data.start_id), 2000);
+            const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
+            if(data.success) {
+                showModal("✅ Command Sent", "Start command sent successfully. The dashboard will update once the state changes.", closeAction);
             } else {
-                const actions = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
-                const title = data.result === 'already_running' ? "Already Running" : "❌ Error!";
-                const message = data.result === 'already_running' ? "The studio is already running." : (data.error || "An unknown error occurred.");
-                showModal(title, message, actions);
+                showModal("❌ Error", `Failed to send start command: ${data.error}`, closeAction);
             }
+            fetchData();
         });
 
         document.getElementById('manualStopBtn').addEventListener('click', () => {
@@ -437,7 +411,7 @@ DASHBOARD_HTML = """
                     const data = await response.json();
                     const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
                     if(data.success) {
-                        showModal("✅ Success", "Stop command sent successfully.", closeAction);
+                        showModal("✅ Command Sent", "Stop command sent successfully. The dashboard will update once the state changes.", closeAction);
                     } else {
                         showModal("❌ Error", `Failed to stop: ${data.error}`, closeAction);
                     }
@@ -622,7 +596,6 @@ def get_logs_data():
         r = requests.get(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?order=timestamp.asc&limit=2000&timestamp=gte.{since}", headers=headers, timeout=15)
         if r.status_code == 200:
             logs = r.json()
-            # Parse metadata string into object
             for log in logs:
                 if isinstance(log.get('metadata'), str):
                     try: log['metadata'] = json.loads(log['metadata'])
@@ -636,40 +609,23 @@ def get_logs_data():
 
 @app.route("/start", methods=['POST'])
 def manual_start():
-    start_id = f"start_{int(time.time())}"
-    def start_async():
-        log_event("manual_start_begin", f"Manual start initiated: {start_id}", "event")
-        try:
-            studio.start(Machine.CPU)
-            log_event("manual_start_end", f"Manual start command sent: {start_id}", "event")
-            app.config['ASYNC_TASKS'][start_id] = {"status": "completed", "success": True}
-        except Exception as e:
-            error_str = str(e)
-            log_event("manual_start_error", f"Manual start failed: {start_id} - {error_str}", "error")
-            app.config['ASYNC_TASKS'][start_id] = {"status": "completed", "success": False, "error": error_str}
-    app.config['ASYNC_TASKS'][start_id] = {"status": "starting", "start_time": datetime.now().isoformat()}
-    thread = threading.Thread(target=start_async); thread.daemon = True; thread.start()
-    return jsonify({"result": "start_initiated", "start_id": start_id})
+    try:
+        log_event("manual_start_begin", "Manual start initiated", "event")
+        studio.start(Machine.CPU)
+        return jsonify({"success": True, "message": "Start command sent."})
+    except Exception as e:
+        log_event("manual_start_error", f"Manual start failed: {e}", "error")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/stop", methods=['POST'])
 def manual_stop():
     try:
         log_event("manual_stop_begin", "Manual stop initiated", "event")
         studio.stop()
-        log_event("manual_stop_end", "Manual stop command sent", "event")
         return jsonify({"success": True, "message": "Stop command sent."})
     except Exception as e:
         log_event("manual_stop_error", f"Manual stop failed: {e}", "error")
         return jsonify({"success": False, "error": str(e)}), 500
-
-@app.route("/start/progress/<start_id>")
-def start_progress(start_id):
-    task = app.config['ASYNC_TASKS'].get(start_id)
-    if not task: return jsonify({"error": "Start ID not found"}), 404
-    if task['status'] == 'starting':
-        elapsed = (datetime.now() - datetime.fromisoformat(task['start_time'])).total_seconds()
-        return jsonify({"status": "starting", "elapsed_seconds": elapsed})
-    else: return jsonify(task)
 
 @app.route("/terminal")
 def terminal(): return render_template_string(TERMINAL_HTML)
@@ -692,7 +648,7 @@ def view_logs():
         r = requests.get(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?order=timestamp.desc&limit=500", headers=headers)
         logs = r.json() if r.status_code == 200 else []
     except Exception as e:
-        logs = [{"timestamp": datetime.now().isoformat(), "event_type": "error", "note": f"Could not fetch logs: {e}"}]
+        logs = [{"timestamp": datetime.now().isoformat(), "event_type": "error", "note": f"Could not fetch logs: {e}", "type": "error"}]
     return render_template_string(LOGS_HTML, logs=logs)
 
 @app.route("/debug")
@@ -704,5 +660,5 @@ if __name__ == "__main__":
     monitor_thread = threading.Thread(target=monitor_loop)
     monitor_thread.daemon = True
     monitor_thread.start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
