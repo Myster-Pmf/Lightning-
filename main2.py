@@ -78,11 +78,6 @@ python_interpreter = PythonInterpreter()
 
 # === Enhanced Logging Function ===
 def log_event(event_type, note="", type="event", metadata=None):
-    """
-    Sends a log entry to Supabase.
-    If logs are not appearing, it's often a Row Level Security (RLS) issue on your Supabase table.
-    Ensure you have an INSERT policy enabled or are using a `service_role` key.
-    """
     debug_print(f"Logging to Supabase: {event_type} - {note}")
     if not SUPABASE_URL or not SUPABASE_API_KEY:
         debug_print("Supabase URL or API Key is not set. Skipping log.")
@@ -103,7 +98,6 @@ def log_event(event_type, note="", type="event", metadata=None):
     }
     try:
         r = requests.post(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}", json=payload, headers=headers, timeout=10)
-        # Always print status to help debug RLS issues
         if r.status_code not in [200, 201]:
             debug_print(f"!!! Supabase Log Error: {r.status_code} - {r.text}")
     except Exception as e:
@@ -121,28 +115,29 @@ def get_studio_status():
 def check_supabase_health():
     start_time = time.time()
     headers = {"apikey": SUPABASE_API_KEY, "Authorization": f"Bearer {SUPABASE_API_KEY}", "Content-Type": "application/json"}
-    
-    # *** FIX: Added the required "type" field to the test payload ***
-    test_payload = {
-        "event_type": "health_check", 
-        "note": "testing write access",
-        "type": "health_check" 
-    }
+    test_payload = {"event_type": "health_check", "note": "testing write access", "type": "health_check"}
     
     try:
         # 1. Test Write
         r_write = requests.post(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}", json=test_payload, headers=headers, params={"select": "id"}, timeout=10)
+        
+        # FIX: Handle non-JSON responses gracefully
+        try:
+            write_response_json = r_write.json()
+        except requests.exceptions.JSONDecodeError:
+            return {"status": "error", "message": f"Write test failed. Received a non-JSON response from the URL. Please verify your SUPABASE_URL. Status: {r_write.status_code}"}
+
         if r_write.status_code != 201:
-            return {"status": "error", "message": f"Write test failed. Status: {r_write.status_code} - {r_write.text}. Check your RLS policies for INSERT."}
+            return {"status": "error", "message": f"Write test failed. Status: {r_write.status_code} - {r_write.text}. Check your table's RLS policies for INSERT."}
         
         # 2. Test Delete (cleanup)
-        inserted_id = r_write.json()[0]['id']
+        inserted_id = write_response_json[0]['id']
         r_delete = requests.delete(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?id=eq.{inserted_id}", headers=headers, timeout=10)
         if r_delete.status_code != 204:
              return {"status": "warning", "message": f"Write test passed, but failed to delete test record (ID: {inserted_id}). Please delete it manually."}
 
         latency = (time.time() - start_time) * 1000
-        return {"status": "ok", "message": "Supabase connection and write access successful.", "latency_ms": round(latency)}
+        return {"status": "ok", "message": "Supabase connection and write/delete access successful.", "latency_ms": round(latency)}
 
     except Exception as e:
         return {"status": "error", "message": f"Exception during Supabase health check: {e}"}
@@ -175,22 +170,17 @@ def monitor_loop():
                 continue
 
             status, error = get_studio_status()
-
-            # Log every status check as a heartbeat
             log_event("status_check", f"Current status: {status}", "heartbeat", {"status": status, "error": error})
 
             if status != last_known_status:
                 log_event("state_change", f"Status changed from '{last_known_status}' to '{status}'", "event", {"from": last_known_status, "to": status})
                 last_known_status = status
             
-            # NO AUTOMATIC ACTIONS ARE TAKEN.
-            # The loop now only serves to log status to Supabase for the dashboard graph.
-
         except Exception as e:
             debug_print(f"CRITICAL: Exception in monitor loop: {e}\n{traceback.format_exc()}")
             log_event("monitor_error", f"Exception in monitor loop: {e}", "error")
         
-        time.sleep(60) # Check and log status every minute
+        time.sleep(60)
 
 # === HTML Templates (Self-contained) ===
 DASHBOARD_HTML = """
@@ -299,7 +289,6 @@ DASHBOARD_HTML = """
                         borderSkipped: false
                     });
                 }
-                // Add final segment from last log to now
                 const lastLog = logs[logs.length - 1];
                 const lastStatus = getStatusFromLog(lastLog);
                 datasets.push({
@@ -344,11 +333,10 @@ DASHBOARD_HTML = """
 
         function updateStatus(liveStatus) {
             const status = liveStatus.status;
-            let dotClass = STATUS_MAP[status] ? `bg-${STATUS_MAP[status].color.split('-')[1]}-500` : 'bg-gray-500';
+            let dotClass = 'bg-gray-500';
             if (status === 'running') dotClass = 'bg-green-500';
             else if (status === 'stopped') dotClass = 'bg-red-500';
             else if (['starting', 'stopping', 'restarting'].includes(status)) dotClass = 'bg-yellow-500';
-            
             statusText.innerHTML = `<span class="status-dot ${dotClass}" style="animation-play-state: ${status === 'running' ? 'running' : 'paused'}"></span> ${status}`;
         }
 
@@ -364,12 +352,8 @@ DASHBOARD_HTML = """
             }
         }
         
-        // --- Modal Logic ---
-        const modal = document.getElementById('modal');
-        const modalTitle = document.getElementById('modalTitle');
-        const modalMessage = document.getElementById('modalMessage');
-        const modalSpinner = document.getElementById('modalSpinner');
-        const modalActions = document.getElementById('modalActions');
+        const modal = document.getElementById('modal'), modalTitle = document.getElementById('modalTitle'), modalMessage = document.getElementById('modalMessage'), modalSpinner = document.getElementById('modalSpinner'), modalActions = document.getElementById('modalActions');
+        let progressInterval;
 
         function showModal(title, message, actions = [], showSpinner = false) {
             modalTitle.textContent = title;
@@ -385,19 +369,35 @@ DASHBOARD_HTML = """
             });
             modal.classList.remove('hidden');
         }
-        function closeModal() { modal.classList.add('hidden'); }
+        function closeModal() { modal.classList.add('hidden'); clearInterval(progressInterval); }
+
+        async function checkProgress(startId) {
+            const response = await fetch(`/start/progress/${startId}`);
+            const data = await response.json();
+            if (data.status === 'starting') {
+                modalMessage.textContent = `Please wait... (${Math.round(data.elapsed_seconds)}s elapsed)`;
+            } else if (data.status === 'completed') {
+                clearInterval(progressInterval);
+                const actions = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
+                if (data.success) {
+                    showModal("✅ Success!", "Studio start process completed.", actions);
+                } else {
+                    showModal("❌ Error!", `Failed to start: ${data.error}`, actions);
+                }
+                fetchData();
+            }
+        }
 
         document.getElementById('manualStartBtn').addEventListener('click', async () => {
             showModal("Starting Studio...", "Sending start command...", [], true);
             const response = await fetch('/start', { method: 'POST' });
             const data = await response.json();
-            const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
-            if(data.success) {
-                showModal("✅ Command Sent", "Start command sent successfully. The dashboard will update once the state changes.", closeAction);
+            if (data.start_id) {
+                progressInterval = setInterval(() => checkProgress(data.start_id), 3000);
             } else {
-                showModal("❌ Error", `Failed to send start command: ${data.error}`, closeAction);
+                const actions = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
+                showModal("❌ Error!", data.error || "An unknown error occurred.", actions);
             }
-            fetchData();
         });
 
         document.getElementById('manualStopBtn').addEventListener('click', () => {
@@ -409,7 +409,7 @@ DASHBOARD_HTML = """
                     const data = await response.json();
                     const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
                     if(data.success) {
-                        showModal("✅ Command Sent", "Stop command sent successfully. The dashboard will update once the state changes.", closeAction);
+                        showModal("✅ Command Sent", "Stop command sent successfully. The dashboard will update.", closeAction);
                     } else {
                         showModal("❌ Error", `Failed to stop: ${data.error}`, closeAction);
                     }
@@ -607,13 +607,30 @@ def get_logs_data():
 
 @app.route("/start", methods=['POST'])
 def manual_start():
-    try:
-        log_event("manual_start_begin", "Manual start initiated", "event")
-        studio.start(Machine.CPU)
-        return jsonify({"success": True, "message": "Start command sent."})
-    except Exception as e:
-        log_event("manual_start_error", f"Manual start failed: {e}", "error")
-        return jsonify({"success": False, "error": str(e)}), 500
+    start_id = f"start_{int(time.time())}"
+    def start_async():
+        log_event("manual_start_begin", f"Manual start initiated via UI: {start_id}", "event")
+        try:
+            studio.start(Machine.CPU)
+            log_event("manual_start_success", f"Studio start process completed for {start_id}", "event")
+            app.config['ASYNC_TASKS'][start_id] = {"status": "completed", "success": True}
+        except Exception as e:
+            error_str = str(e)
+            log_event("manual_start_error", f"Manual start failed for {start_id}: {error_str}", "error")
+            app.config['ASYNC_TASKS'][start_id] = {"status": "completed", "success": False, "error": error_str}
+    
+    app.config['ASYNC_TASKS'][start_id] = {"status": "starting", "start_time": datetime.now().isoformat()}
+    thread = threading.Thread(target=start_async); thread.daemon = True; thread.start()
+    return jsonify({"result": "start_initiated", "start_id": start_id})
+
+@app.route("/start/progress/<start_id>")
+def start_progress(start_id):
+    task = app.config['ASYNC_TASKS'].get(start_id)
+    if not task: return jsonify({"error": "Start ID not found"}), 404
+    if task['status'] == 'starting':
+        elapsed = (datetime.now() - datetime.fromisoformat(task['start_time'])).total_seconds()
+        return jsonify({"status": "starting", "elapsed_seconds": elapsed})
+    else: return jsonify(task)
 
 @app.route("/stop", methods=['POST'])
 def manual_stop():
@@ -658,5 +675,5 @@ if __name__ == "__main__":
     monitor_thread = threading.Thread(target=monitor_loop)
     monitor_thread.daemon = True
     monitor_thread.start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
