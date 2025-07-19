@@ -80,14 +80,8 @@ python_interpreter = PythonInterpreter()
 def log_event(event_type, note="", type="event", metadata=None):
     """
     Sends a log entry to Supabase.
-    *** SUPABASE DEBUGGING NOTE ***
-    If logs are not appearing, the most likely cause is your table's Row Level Security (RLS).
-    1. Go to your Supabase project -> Authentication -> Policies.
-    2. Select your `studio_logs` table.
-    3. Ensure you have a policy for INSERT that allows access. For a simple, secure setup,
-       you can create a policy "Enable insert for authenticated users" using the template.
-    4. Alternatively, for quick testing (less secure), you can create a policy "Enable insert for all users".
-    5. Make sure you are using your `service_role` key for the SUPABASE_API_KEY in your .env file to bypass RLS entirely.
+    If logs are not appearing, it's often a Row Level Security (RLS) issue on your Supabase table.
+    Ensure you have an INSERT policy enabled or are using a `service_role` key.
     """
     debug_print(f"Logging to Supabase: {event_type} - {note}")
     if not SUPABASE_URL or not SUPABASE_API_KEY:
@@ -110,7 +104,6 @@ def log_event(event_type, note="", type="event", metadata=None):
     try:
         r = requests.post(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}", json=payload, headers=headers, timeout=10)
         # Always print status to help debug RLS issues
-        debug_print(f"Supabase POST response: {r.status_code} - {r.text}")
         if r.status_code not in [200, 201]:
             debug_print(f"!!! Supabase Log Error: {r.status_code} - {r.text}")
     except Exception as e:
@@ -128,7 +121,13 @@ def get_studio_status():
 def check_supabase_health():
     start_time = time.time()
     headers = {"apikey": SUPABASE_API_KEY, "Authorization": f"Bearer {SUPABASE_API_KEY}", "Content-Type": "application/json"}
-    test_payload = {"event_type": "health_check", "note": "testing write access"}
+    
+    # *** FIX: Added the required "type" field to the test payload ***
+    test_payload = {
+        "event_type": "health_check", 
+        "note": "testing write access",
+        "type": "health_check" 
+    }
     
     try:
         # 1. Test Write
@@ -371,7 +370,6 @@ DASHBOARD_HTML = """
         const modalMessage = document.getElementById('modalMessage');
         const modalSpinner = document.getElementById('modalSpinner');
         const modalActions = document.getElementById('modalActions');
-        let progressInterval;
 
         function showModal(title, message, actions = [], showSpinner = false) {
             modalTitle.textContent = title;
@@ -387,7 +385,7 @@ DASHBOARD_HTML = """
             });
             modal.classList.remove('hidden');
         }
-        function closeModal() { modal.classList.add('hidden'); clearInterval(progressInterval); }
+        function closeModal() { modal.classList.add('hidden'); }
 
         document.getElementById('manualStartBtn').addEventListener('click', async () => {
             showModal("Starting Studio...", "Sending start command...", [], true);
@@ -660,5 +658,5 @@ if __name__ == "__main__":
     monitor_thread = threading.Thread(target=monitor_loop)
     monitor_thread.daemon = True
     monitor_thread.start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
