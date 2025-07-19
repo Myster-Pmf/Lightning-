@@ -114,25 +114,34 @@ def get_studio_status():
 # === Supabase Health Check (with Write Test) ===
 def check_supabase_health():
     start_time = time.time()
-    headers = {"apikey": SUPABASE_API_KEY, "Authorization": f"Bearer {SUPABASE_API_KEY}", "Content-Type": "application/json"}
+    # FIX: Ask Supabase to return the created row so we can parse it as JSON
+    headers = {
+        "apikey": SUPABASE_API_KEY, 
+        "Authorization": f"Bearer {SUPABASE_API_KEY}", 
+        "Content-Type": "application/json",
+        "Prefer": "return=representation" 
+    }
     test_payload = {"event_type": "health_check", "note": "testing write access", "type": "health_check"}
     
     try:
         # 1. Test Write
-        r_write = requests.post(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}", json=test_payload, headers=headers, params={"select": "id"}, timeout=10)
+        r_write = requests.post(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}", json=test_payload, headers=headers, timeout=10)
         
-        # FIX: Handle non-JSON responses gracefully
+        if r_write.status_code != 201:
+             return {"status": "error", "message": f"Write test failed. Status: {r_write.status_code} - {r_write.text}. Check RLS policies."}
+
+        # FIX: Now that we expect a JSON response, this will work.
         try:
             write_response_json = r_write.json()
-        except requests.exceptions.JSONDecodeError:
-            return {"status": "error", "message": f"Write test failed. Received a non-JSON response from the URL. Please verify your SUPABASE_URL. Status: {r_write.status_code}"}
+            if not write_response_json:
+                raise ValueError("Response is empty.")
+        except (requests.exceptions.JSONDecodeError, ValueError):
+            return {"status": "error", "message": f"Write test returned success status ({r_write.status_code}) but response was not valid JSON. Check URL/proxy settings."}
 
-        if r_write.status_code != 201:
-            return {"status": "error", "message": f"Write test failed. Status: {r_write.status_code} - {r_write.text}. Check your table's RLS policies for INSERT."}
-        
         # 2. Test Delete (cleanup)
         inserted_id = write_response_json[0]['id']
-        r_delete = requests.delete(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?id=eq.{inserted_id}", headers=headers, timeout=10)
+        delete_headers = {"apikey": SUPABASE_API_KEY, "Authorization": f"Bearer {SUPABASE_API_KEY}"}
+        r_delete = requests.delete(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?id=eq.{inserted_id}", headers=delete_headers, timeout=10)
         if r_delete.status_code != 204:
              return {"status": "warning", "message": f"Write test passed, but failed to delete test record (ID: {inserted_id}). Please delete it manually."}
 
@@ -197,6 +206,7 @@ DASHBOARD_HTML = """
         .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; animation: pulse 2s infinite; }
         @keyframes pulse { 0%, 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(0, 0, 0, 0); } }
         .bg-green-500 { box-shadow: 0 0 8px #34d399; } .bg-red-500 { box-shadow: 0 0 8px #f87171; } .bg-yellow-500 { box-shadow: 0 0 8px #fbbf24; } .bg-gray-500 { box-shadow: 0 0 8px #9ca3af; }
+        .time-range-btn.active { background-color: #4f46e5; color: white; }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen p-4 md:p-6">
@@ -213,13 +223,19 @@ DASHBOARD_HTML = """
             </div>
         </div>
 
-        <div class="bg-gray-800 p-4 rounded-lg shadow-lg mb-6 flex space-x-4">
-            <button id="manualStartBtn" class="bg-green-600 hover:bg-green-700 px-5 py-2 rounded-lg font-semibold transition-transform transform hover:scale-105">Manual Start</button>
-            <button id="manualStopBtn" class="bg-red-600 hover:bg-red-700 px-5 py-2 rounded-lg font-semibold transition-transform transform hover:scale-105">Manual Stop</button>
+        <div class="bg-gray-800 p-4 rounded-lg shadow-lg mb-6 flex justify-between items-center">
+            <div class="flex space-x-4">
+                <button id="manualStartBtn" class="bg-green-600 hover:bg-green-700 px-5 py-2 rounded-lg font-semibold transition-transform transform hover:scale-105">Manual Start</button>
+                <button id="manualStopBtn" class="bg-red-600 hover:bg-red-700 px-5 py-2 rounded-lg font-semibold transition-transform transform hover:scale-105">Manual Stop</button>
+            </div>
+            <div class="flex space-x-1 bg-gray-700 p-1 rounded-lg">
+                <button id="1h-btn" class="time-range-btn px-3 py-1 rounded-md text-sm font-medium" onclick="setTimeRange('1h')">1 Hour</button>
+                <button id="24h-btn" class="time-range-btn px-3 py-1 rounded-md text-sm font-medium" onclick="setTimeRange('24h')">24 Hours</button>
+            </div>
         </div>
 
         <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
-            <h2 class="text-xl font-semibold mb-3">Studio Activity Timeline (Last 24 Hours)</h2>
+            <h2 class="text-xl font-semibold mb-3">Studio Activity Timeline</h2>
             <div class="h-64"><canvas id="uptimeChart"></canvas></div>
         </div>
     </div>
@@ -235,6 +251,7 @@ DASHBOARD_HTML = """
     </div>
 
     <script>
+        let currentRange = '1h';
         const statusText = document.getElementById('status-text').querySelector('span');
         const chartCanvas = document.getElementById('uptimeChart');
         let uptimeChart;
@@ -270,23 +287,17 @@ DASHBOARD_HTML = """
             return `${h.toFixed(1)}h`;
         }
 
-        function createChart(logs) {
+        function createChart(logs, range) {
             const datasets = [];
             if (logs.length > 0) {
                 for (let i = 0; i < logs.length - 1; i++) {
                     const currentLog = logs[i];
                     const nextLog = logs[i+1];
                     const status = getStatusFromLog(currentLog);
-                    const startTime = new Date(currentLog.timestamp);
-                    const endTime = new Date(nextLog.timestamp);
-                    
                     datasets.push({
                         label: STATUS_MAP[status]?.label || 'Unknown',
-                        data: [{ x: [startTime, endTime], y: 'Activity' }],
-                        backgroundColor: STATUS_MAP[status]?.color || STATUS_MAP.unknown.color,
-                        borderColor: 'rgba(0,0,0,0.2)',
-                        borderWidth: 1,
-                        borderSkipped: false
+                        data: [{ x: [new Date(currentLog.timestamp), new Date(nextLog.timestamp)], y: 'Activity' }],
+                        backgroundColor: STATUS_MAP[status]?.color || STATUS_MAP.unknown.color
                     });
                 }
                 const lastLog = logs[logs.length - 1];
@@ -298,6 +309,11 @@ DASHBOARD_HTML = """
                 });
             }
 
+            const timeConfig = {
+                '1h': { unit: 'minute', min: new Date(new Date().getTime() - 60 * 60 * 1000) },
+                '24h': { unit: 'hour', min: new Date(new Date().getTime() - 24 * 60 * 60 * 1000) }
+            };
+
             const config = {
                 type: 'bar',
                 data: { datasets },
@@ -305,24 +321,13 @@ DASHBOARD_HTML = """
                     indexAxis: 'y', responsive: true, maintainAspectRatio: false,
                     plugins: {
                         legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    const start = new Date(context.raw.x[0]);
-                                    const end = new Date(context.raw.x[1]);
-                                    const duration = formatDuration(end - start);
-                                    return `${context.dataset.label}: ${duration}`;
-                                },
-                                title: function(context) {
-                                    const start = new Date(context[0].raw.x[0]).toLocaleString();
-                                    const end = new Date(context[0].raw.x[1]).toLocaleString();
-                                    return `${start} - ${end}`;
-                                }
-                            }
-                        }
+                        tooltip: { callbacks: {
+                            label: (ctx) => `${ctx.dataset.label}: ${formatDuration(ctx.raw.x[1] - ctx.raw.x[0])}`,
+                            title: (ctx) => `${new Date(ctx[0].raw.x[0]).toLocaleString()} - ${new Date(ctx[0].raw.x[1]).toLocaleString()}`
+                        }}
                     },
                     scales: {
-                        x: { type: 'time', time: { unit: 'hour' }, min: new Date(new Date().setDate(new Date().getDate() - 1)), max: new Date(), stacked: true, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: 'white' } },
+                        x: { type: 'time', time: { unit: timeConfig[range].unit }, min: timeConfig[range].min, max: new Date(), stacked: true, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: 'white' } },
                         y: { stacked: true, grid: { display: false }, ticks: { color: 'white' } }
                     }
                 }
@@ -340,11 +345,11 @@ DASHBOARD_HTML = """
             statusText.innerHTML = `<span class="status-dot ${dotClass}" style="animation-play-state: ${status === 'running' ? 'running' : 'paused'}"></span> ${status}`;
         }
 
-        async function fetchData() {
+        async function fetchData(range) {
             try {
-                const response = await fetch('/api/logs');
+                const response = await fetch(`/api/logs?range=${range}`);
                 const data = await response.json();
-                createChart(data.logs);
+                createChart(data.logs, range);
                 updateStatus(data.live_status);
             } catch (error) {
                 console.error('Failed to fetch data:', error);
@@ -352,6 +357,13 @@ DASHBOARD_HTML = """
             }
         }
         
+        function setTimeRange(range) {
+            currentRange = range;
+            document.getElementById('1h-btn').classList.toggle('active', range === '1h');
+            document.getElementById('24h-btn').classList.toggle('active', range === '24h');
+            fetchData(range);
+        }
+
         const modal = document.getElementById('modal'), modalTitle = document.getElementById('modalTitle'), modalMessage = document.getElementById('modalMessage'), modalSpinner = document.getElementById('modalSpinner'), modalActions = document.getElementById('modalActions');
         let progressInterval;
 
@@ -384,7 +396,7 @@ DASHBOARD_HTML = """
                 } else {
                     showModal("❌ Error!", `Failed to start: ${data.error}`, actions);
                 }
-                fetchData();
+                fetchData(currentRange);
             }
         }
 
@@ -413,14 +425,14 @@ DASHBOARD_HTML = """
                     } else {
                         showModal("❌ Error", `Failed to stop: ${data.error}`, closeAction);
                     }
-                    fetchData();
+                    fetchData(currentRange);
                 }}
             ];
             showModal("Confirm Stop", "Are you sure you want to stop the studio?", actions);
         });
 
-        fetchData();
-        setInterval(fetchData, 60000);
+        setTimeRange('1h'); // Default view
+        setInterval(() => fetchData(currentRange), 60000);
     </script>
 </body>
 </html>
@@ -587,10 +599,13 @@ def dashboard(): return render_template_string(DASHBOARD_HTML)
 
 @app.route("/api/logs")
 def get_logs_data():
+    range_arg = request.args.get('range', '1h') # Default to 1 hour
+    hours = 1 if range_arg == '1h' else 24
+    
     headers = {"apikey": SUPABASE_API_KEY, "Authorization": f"Bearer {SUPABASE_API_KEY}"}
     logs = []
     try:
-        since = (datetime.now() - timedelta(hours=24)).isoformat()
+        since = (datetime.now() - timedelta(hours=hours)).isoformat()
         r = requests.get(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?order=timestamp.asc&limit=2000&timestamp=gte.{since}", headers=headers, timeout=15)
         if r.status_code == 200:
             logs = r.json()
@@ -612,7 +627,6 @@ def manual_start():
         log_event("manual_start_begin", f"Manual start initiated via UI: {start_id}", "event")
         try:
             studio.start(Machine.CPU)
-            log_event("manual_start_success", f"Studio start process completed for {start_id}", "event")
             app.config['ASYNC_TASKS'][start_id] = {"status": "completed", "success": True}
         except Exception as e:
             error_str = str(e)
