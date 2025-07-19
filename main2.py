@@ -86,7 +86,7 @@ def log_event(event_type, note="", type="event", metadata=None):
     payload = {
         "timestamp": datetime.now().isoformat(),
         "event_type": event_type,
-        "note": note[:255] if note else "",
+        "note": note[:255],
         "type": type,
         "metadata": json.dumps(metadata) if metadata else None
     }
@@ -94,20 +94,14 @@ def log_event(event_type, note="", type="event", metadata=None):
         "apikey": SUPABASE_API_KEY,
         "Authorization": f"Bearer {SUPABASE_API_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "return=representation"
+        "Prefer": "return=minimal"
     }
     try:
-        debug_print(f"Sending payload to Supabase: {payload}")
         r = requests.post(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}", json=payload, headers=headers, timeout=10)
-        debug_print(f"Supabase response: {r.status_code} - {r.text}")
         if r.status_code not in [200, 201]:
             debug_print(f"!!! Supabase Log Error: {r.status_code} - {r.text}")
-        else:
-            debug_print(f"Successfully logged event: {event_type}")
     except Exception as e:
         debug_print(f"!!! Supabase Log Exception: {e}")
-        import traceback
-        debug_print(f"Full traceback: {traceback.format_exc()}")
 
 # === Get Real Studio Status ===
 def get_studio_status():
@@ -176,38 +170,25 @@ def get_debug_info():
 def monitor_loop():
     debug_print("Starting monitor loop (Manual Control Mode)")
     last_known_status = None
-    loop_count = 0
 
     while True:
         try:
-            loop_count += 1
-            debug_print(f"Monitor loop iteration #{loop_count}")
-            
             if not studio:
                 debug_print("Studio object is None, cannot monitor.")
-                log_event("monitor_warning", "Studio object is None, cannot monitor", "warning")
                 time.sleep(60)
                 continue
 
             status, error = get_studio_status()
-            debug_print(f"Got studio status: {status}, error: {error}")
-            
-            # Always log heartbeat
-            log_event("status_check", f"Current status: {status}", "heartbeat", {"status": status, "error": error, "loop_count": loop_count})
+            log_event("status_check", f"Current status: {status}", "heartbeat", {"status": status, "error": error})
 
-            # Log state changes
             if status != last_known_status:
-                debug_print(f"Status changed from '{last_known_status}' to '{status}'")
                 log_event("state_change", f"Status changed from '{last_known_status}' to '{status}'", "event", {"from": last_known_status, "to": status})
                 last_known_status = status
-            else:
-                debug_print(f"Status unchanged: {status}")
             
         except Exception as e:
             debug_print(f"CRITICAL: Exception in monitor loop: {e}\n{traceback.format_exc()}")
-            log_event("monitor_error", f"Exception in monitor loop: {e}", "error", {"loop_count": loop_count})
+            log_event("monitor_error", f"Exception in monitor loop: {e}", "error")
         
-        debug_print("Monitor loop sleeping for 60 seconds...")
         time.sleep(60)
 
 # === HTML Templates (Self-contained) ===
@@ -642,26 +623,18 @@ def get_logs_data():
 @app.route("/start", methods=['POST'])
 def manual_start():
     start_id = f"start_{int(time.time())}"
-    debug_print(f"Manual start requested, start_id: {start_id}")
-    
     def start_async():
-        debug_print(f"Starting async start process for {start_id}")
-        log_event("manual_start_begin", f"Manual start initiated via UI: {start_id}", "event", {"start_id": start_id})
+        log_event("manual_start_begin", f"Manual start initiated via UI: {start_id}", "event")
         try:
-            debug_print("Calling studio.start(Machine.CPU)...")
             studio.start(Machine.CPU)
-            debug_print("Studio start completed successfully")
-            log_event("manual_start_success", f"Manual start completed successfully: {start_id}", "event", {"start_id": start_id})
             app.config['ASYNC_TASKS'][start_id] = {"status": "completed", "success": True}
         except Exception as e:
             error_str = str(e)
-            debug_print(f"Studio start failed: {error_str}")
-            log_event("manual_start_error", f"Manual start failed for {start_id}: {error_str}", "error", {"start_id": start_id, "error": error_str})
+            log_event("manual_start_error", f"Manual start failed for {start_id}: {error_str}", "error")
             app.config['ASYNC_TASKS'][start_id] = {"status": "completed", "success": False, "error": error_str}
     
     app.config['ASYNC_TASKS'][start_id] = {"status": "starting", "start_time": datetime.now().isoformat()}
     thread = threading.Thread(target=start_async); thread.daemon = True; thread.start()
-    debug_print(f"Async start thread started for {start_id}")
     return jsonify({"result": "start_initiated", "start_id": start_id})
 
 @app.route("/start/progress/<start_id>")
@@ -675,19 +648,13 @@ def start_progress(start_id):
 
 @app.route("/stop", methods=['POST'])
 def manual_stop():
-    debug_print("Manual stop requested")
     try:
-        log_event("manual_stop_begin", "Manual stop initiated via UI", "event")
-        debug_print("Calling studio.stop()...")
+        log_event("manual_stop_begin", "Manual stop initiated", "event")
         studio.stop()
-        debug_print("Studio stop completed successfully")
-        log_event("manual_stop_success", "Manual stop completed successfully", "event")
         return jsonify({"success": True, "message": "Stop command sent."})
     except Exception as e:
-        error_str = str(e)
-        debug_print(f"Studio stop failed: {error_str}")
-        log_event("manual_stop_error", f"Manual stop failed: {error_str}", "error", {"error": error_str})
-        return jsonify({"success": False, "error": error_str}), 500
+        log_event("manual_stop_error", f"Manual stop failed: {e}", "error")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/terminal")
 def terminal(): return render_template_string(TERMINAL_HTML)
@@ -718,30 +685,8 @@ def debug_view(): return render_template_string(DEBUG_HTML, debug_info=get_debug
 
 # === Main Execution ===
 if __name__ == "__main__":
-    debug_print("=== APPLICATION STARTING ===")
-    
-    # Test Supabase connection first
-    debug_print("Testing Supabase connection...")
-    health_result = check_supabase_health()
-    debug_print(f"Supabase health check result: {health_result}")
-    
-    # Log startup
-    debug_print("Logging startup event...")
-    log_event("startup", "Monitor and UI server starting", "event", {
-        "port": int(os.environ.get("PORT", 8080)),
-        "studio_initialized": studio is not None,
-        "supabase_health": health_result.get("status", "unknown")
-    })
-    
-    # Start monitor thread
-    debug_print("Starting monitor thread...")
+    log_event("startup", "Monitor and UI server starting")
     monitor_thread = threading.Thread(target=monitor_loop)
     monitor_thread.daemon = True
     monitor_thread.start()
-    debug_print("Monitor thread started")
-    
-    # Log that monitor started
-    log_event("monitor_started", "Background monitor thread started", "event")
-    
-    debug_print(f"Starting Flask app on port {int(os.environ.get('PORT', 8080))}")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
