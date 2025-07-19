@@ -249,160 +249,9 @@ def monitor_loop():
             else:
                 time.sleep(60)  # Standard 1-minute check
 
-# === Flask Routes ===
+# === HTML Templates ===
 
-@app.route("/")
-def dashboard():
-    return render_template_string(open("dashboard.html").read())
-
-@app.route("/api/logs")
-def get_logs_data():
-    """API endpoint to fetch logs for the dashboard chart."""
-    headers = {
-        "apikey": SUPABASE_API_KEY,
-        "Authorization": f"Bearer {SUPABASE_API_KEY}"
-    }
-    logs = []
-    try:
-        # Fetch last 24 hours of logs, max 2000 entries
-        since = (datetime.now() - timedelta(hours=24)).isoformat()
-        r = requests.get(
-            f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?order=timestamp.asc&limit=2000&timestamp=gte.{since}",
-            headers=headers,
-            timeout=15
-        )
-        if r.status_code == 200:
-            logs = r.json()
-        else:
-            debug_print(f"Failed to fetch logs for dashboard: {r.status_code} {r.text}")
-    except Exception as e:
-        debug_print(f"Exception fetching logs for dashboard: {e}")
-
-    # Also get the current live status
-    current_status, error = get_studio_status()
-    
-    return jsonify({
-        "logs": logs,
-        "live_status": {
-            "status": current_status,
-            "error": error,
-            "timestamp": datetime.now().isoformat()
-        }
-    })
-
-
-@app.route("/status")
-def status_check():
-    if not studio:
-        return jsonify({"error": "Studio not initialized"}), 500
-    
-    status, error = get_studio_status()
-    return jsonify({
-        "status": status,
-        "error": error,
-        "timestamp": datetime.now().isoformat()
-    })
-
-@app.route("/start", methods=['POST'])
-def manual_start():
-    if not studio:
-        return jsonify({"error": "Studio not initialized"}), 500
-    
-    current_status, _ = get_studio_status()
-    if current_status == "running":
-        return jsonify({"result": "already_running", "status": current_status})
-
-    start_id = f"start_{int(time.time())}"
-    
-    def start_studio_async():
-        """The actual start logic to run in a background thread."""
-        log_event("manual_start_begin", f"Manual start initiated: {start_id}")
-        try:
-            result = studio.start(Machine.CPU)
-            log_event("manual_start_success", f"Manual start completed: {start_id}", metadata={"result": str(result)})
-            app.config['ASYNC_TASKS'][start_id] = {"status": "completed", "success": True, "result": str(result)}
-        except Exception as e:
-            error_str = str(e)
-            log_event("manual_start_error", f"Manual start failed: {start_id} - {error_str}")
-            app.config['ASYNC_TASKS'][start_id] = {"status": "completed", "success": False, "error": error_str}
-
-    # Store the initial state of the task
-    app.config['ASYNC_TASKS'][start_id] = {"status": "starting", "start_time": datetime.now().isoformat()}
-    
-    # Start the task in a background thread
-    thread = threading.Thread(target=start_studio_async)
-    thread.daemon = True
-    thread.start()
-    
-    return jsonify({"result": "start_initiated", "start_id": start_id})
-
-@app.route("/start/progress/<start_id>")
-def start_progress(start_id):
-    task = app.config['ASYNC_TASKS'].get(start_id)
-    if not task:
-        return jsonify({"error": "Start ID not found"}), 404
-    
-    if task['status'] == 'starting':
-        start_time = datetime.fromisoformat(task['start_time'])
-        elapsed = (datetime.now() - start_time).total_seconds()
-        return jsonify({
-            "status": "starting",
-            "elapsed_seconds": elapsed,
-            "message": f"Starting... ({elapsed:.0f}s elapsed)"
-        })
-    else: # 'completed'
-        return jsonify(task)
-
-@app.route("/terminal")
-def terminal():
-    return render_template_string(open("terminal.html").read())
-
-@app.route('/terminal/python', methods=['POST'])
-def execute_python():
-    data = request.get_json()
-    if not data or 'code' not in data:
-        return jsonify({"success": False, "error": "No code provided."}), 400
-    
-    code = data['code']
-    result = python_interpreter.execute(code)
-    return jsonify(result)
-
-@app.route('/terminal/reset', methods=['POST'])
-def reset_interpreter():
-    python_interpreter.reset()
-    return jsonify({"success": True, "message": "Python interpreter session has been reset."})
-
-@app.route("/logs")
-def view_logs():
-    headers = {
-        "apikey": SUPABASE_API_KEY,
-        "Authorization": f"Bearer {SUPABASE_API_KEY}"
-    }
-    try:
-        r = requests.get(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?order=timestamp.desc&limit=200", headers=headers)
-        logs = r.json() if r.status_code == 200 else []
-    except Exception as e:
-        logs = [{"error": str(e)}]
-    return render_template_string(open("logs.html").read(), logs=logs)
-
-@app.route("/debug")
-def debug_view():
-    debug_info = get_debug_info()
-    return render_template_string(open("debug.html").read(), debug_info=debug_info)
-
-
-# === Background Thread for Monitor ===
-def start_monitor():
-    thread = threading.Thread(target=monitor_loop)
-    thread.daemon = True
-    thread.start()
-
-# === Main Execution ===
-if __name__ == "__main__":
-    # Create necessary HTML files if they don't exist
-    if not os.path.exists("dashboard.html"):
-        with open("dashboard.html", "w") as f:
-            f.write("""
+DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -658,10 +507,9 @@ if __name__ == "__main__":
     </script>
 </body>
 </html>
-            """)
-    if not os.path.exists("terminal.html"):
-        with open("terminal.html", "w") as f:
-            f.write("""
+"""
+
+TERMINAL_HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -728,7 +576,7 @@ if __name__ == "__main__":
         }
 
         function runPreset(command) {
-            commandInput.value = command.replace(/\\n/g, '\\n');
+            commandInput.value = command.replace(/\\\\n/g, '\\n');
             runCommand();
         }
 
@@ -795,10 +643,9 @@ if __name__ == "__main__":
     </script>
 </body>
 </html>
-            """)
-    if not os.path.exists("logs.html"):
-        with open("logs.html", "w") as f:
-            f.write("""
+"""
+
+LOGS_HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -838,10 +685,9 @@ if __name__ == "__main__":
     </div>
 </body>
 </html>
-            """)
-    if not os.path.exists("debug.html"):
-        with open("debug.html", "w") as f:
-            f.write("""
+"""
+
+DEBUG_HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -871,8 +717,158 @@ if __name__ == "__main__":
     </div>
 </body>
 </html>
-            """)
+"""
 
+# === Flask Routes ===
+
+@app.route("/")
+def dashboard():
+    return render_template_string(DASHBOARD_HTML)
+
+@app.route("/api/logs")
+def get_logs_data():
+    """API endpoint to fetch logs for the dashboard chart."""
+    headers = {
+        "apikey": SUPABASE_API_KEY,
+        "Authorization": f"Bearer {SUPABASE_API_KEY}"
+    }
+    logs = []
+    try:
+        # Fetch last 24 hours of logs, max 2000 entries
+        since = (datetime.now() - timedelta(hours=24)).isoformat()
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?order=timestamp.asc&limit=2000&timestamp=gte.{since}",
+            headers=headers,
+            timeout=15
+        )
+        if r.status_code == 200:
+            logs = r.json()
+        else:
+            debug_print(f"Failed to fetch logs for dashboard: {r.status_code} {r.text}")
+    except Exception as e:
+        debug_print(f"Exception fetching logs for dashboard: {e}")
+
+    # Also get the current live status
+    current_status, error = get_studio_status()
+    
+    return jsonify({
+        "logs": logs,
+        "live_status": {
+            "status": current_status,
+            "error": error,
+            "timestamp": datetime.now().isoformat()
+        }
+    })
+
+
+@app.route("/status")
+def status_check():
+    if not studio:
+        return jsonify({"error": "Studio not initialized"}), 500
+    
+    status, error = get_studio_status()
+    return jsonify({
+        "status": status,
+        "error": error,
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route("/start", methods=['POST'])
+def manual_start():
+    if not studio:
+        return jsonify({"error": "Studio not initialized"}), 500
+    
+    current_status, _ = get_studio_status()
+    if current_status == "running":
+        return jsonify({"result": "already_running", "status": current_status})
+
+    start_id = f"start_{int(time.time())}"
+    
+    def start_studio_async():
+        """The actual start logic to run in a background thread."""
+        log_event("manual_start_begin", f"Manual start initiated: {start_id}")
+        try:
+            result = studio.start(Machine.CPU)
+            log_event("manual_start_success", f"Manual start completed: {start_id}", metadata={"result": str(result)})
+            app.config['ASYNC_TASKS'][start_id] = {"status": "completed", "success": True, "result": str(result)}
+        except Exception as e:
+            error_str = str(e)
+            log_event("manual_start_error", f"Manual start failed: {start_id} - {error_str}")
+            app.config['ASYNC_TASKS'][start_id] = {"status": "completed", "success": False, "error": error_str}
+
+    # Store the initial state of the task
+    app.config['ASYNC_TASKS'][start_id] = {"status": "starting", "start_time": datetime.now().isoformat()}
+    
+    # Start the task in a background thread
+    thread = threading.Thread(target=start_studio_async)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({"result": "start_initiated", "start_id": start_id})
+
+@app.route("/start/progress/<start_id>")
+def start_progress(start_id):
+    task = app.config['ASYNC_TASKS'].get(start_id)
+    if not task:
+        return jsonify({"error": "Start ID not found"}), 404
+    
+    if task['status'] == 'starting':
+        start_time = datetime.fromisoformat(task['start_time'])
+        elapsed = (datetime.now() - start_time).total_seconds()
+        return jsonify({
+            "status": "starting",
+            "elapsed_seconds": elapsed,
+            "message": f"Starting... ({elapsed:.0f}s elapsed)"
+        })
+    else: # 'completed'
+        return jsonify(task)
+
+@app.route("/terminal")
+def terminal():
+    return render_template_string(TERMINAL_HTML)
+
+@app.route('/terminal/python', methods=['POST'])
+def execute_python():
+    data = request.get_json()
+    if not data or 'code' not in data:
+        return jsonify({"success": False, "error": "No code provided."}), 400
+    
+    code = data['code']
+    result = python_interpreter.execute(code)
+    return jsonify(result)
+
+@app.route('/terminal/reset', methods=['POST'])
+def reset_interpreter():
+    python_interpreter.reset()
+    return jsonify({"success": True, "message": "Python interpreter session has been reset."})
+
+@app.route("/logs")
+def view_logs():
+    headers = {
+        "apikey": SUPABASE_API_KEY,
+        "Authorization": f"Bearer {SUPABASE_API_KEY}"
+    }
+    try:
+        r = requests.get(f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}?order=timestamp.desc&limit=200", headers=headers)
+        logs = r.json() if r.status_code == 200 else []
+    except Exception as e:
+        logs = [{"error": str(e)}]
+    return render_template_string(LOGS_HTML, logs=logs)
+
+@app.route("/debug")
+def debug_view():
+    debug_info = get_debug_info()
+    return render_template_string(DEBUG_HTML, debug_info=debug_info)
+
+
+# === Background Thread for Monitor ===
+def start_monitor():
+    thread = threading.Thread(target=monitor_loop)
+    thread.daemon = True
+    thread.start()
+
+# === Main Execution ===
+if __name__ == "__main__":
     debug_print("=== Initializing Application ===")
     log_event("startup", "Monitor and UI server starting")
     start_monitor()
