@@ -122,7 +122,10 @@ SIMPLE_DASHBOARD_HTML = """
         
         <div style="margin: 20px 0;">
             <a href="/scheduler" style="display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin-right: 10px;">⏰ Scheduler</a>
-            <span style="color: #666;">Automate studio start/stop operations</span>
+            <a href="/files" style="display: inline-block; padding: 10px 20px; background: #28a745; color: white; text-decoration: none; border-radius: 4px; margin-right: 10px;">📁 Files</a>
+            <a href="/terminal" style="display: inline-block; padding: 10px 20px; background: #6f42c1; color: white; text-decoration: none; border-radius: 4px; margin-right: 10px;">💻 Terminal</a>
+            <br><br>
+            <span style="color: #666;">Manage your workspace with scheduling, file editing, and Python terminal</span>
         </div>
         
         <div id="message" style="margin: 20px 0; padding: 10px; border-radius: 4px; display: none;"></div>
@@ -468,6 +471,444 @@ SCHEDULER_HTML = """
 </html>
 """
 
+# File Manager HTML template
+FILES_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Manager - Lightning AI Studio</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: white; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .nav { margin: 20px 0; }
+        .nav a { color: #007bff; text-decoration: none; margin-right: 20px; }
+        .nav a:hover { text-decoration: underline; }
+        .card { background: #333; border-radius: 8px; padding: 20px; margin: 20px 0; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .form-group { margin: 15px 0; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px; border: 1px solid #555; border-radius: 4px; background: #222; color: white; }
+        button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin: 2px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-warning { background: #ffc107; color: black; }
+        .btn-small { padding: 4px 8px; font-size: 12px; }
+        .file-list { max-height: 400px; overflow-y: auto; }
+        .file-item { display: flex; justify-content: between; align-items: center; padding: 10px; margin: 5px 0; background: #444; border-radius: 4px; }
+        .file-info { flex-grow: 1; }
+        .file-actions { display: flex; gap: 5px; }
+        .editor { background: #222; border: 1px solid #555; border-radius: 4px; }
+        .output { background: #000; color: #0f0; padding: 15px; border-radius: 4px; font-family: monospace; max-height: 200px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #555; }
+        th { background: #444; }
+        .status-success { color: #28a745; }
+        .status-failed { color: #dc3545; }
+        .hidden { display: none; }
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; }
+        .modal-content { background: #333; margin: 5% auto; padding: 20px; width: 80%; max-width: 500px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/">← Back to Dashboard</a>
+            <a href="/scheduler">⏰ Scheduler</a>
+            <a href="/terminal">💻 Terminal</a>
+        </div>
+        
+        <h1>📁 File Manager</h1>
+        
+        <div class="grid">
+            <!-- File Browser -->
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2>Workspace Files</h2>
+                    <div>
+                        <button class="btn-success btn-small" onclick="showNewFileModal()">+ New</button>
+                        <button class="btn-primary btn-small" onclick="refreshFiles()">🔄 Refresh</button>
+                    </div>
+                </div>
+                
+                <div id="filesList" class="file-list">
+                    {% if files %}
+                        {% for file in files %}
+                        <div class="file-item">
+                            <div class="file-info" onclick="{% if file.type == 'file' %}loadFile('{{ file.path }}'){% endif %}">
+                                <div style="font-weight: bold;">
+                                    {% if file.type == 'directory' %}📁{% else %}📄{% endif %}
+                                    {{ file.name }}
+                                </div>
+                                {% if file.type == 'file' %}
+                                    <div style="font-size: 12px; color: #999;">
+                                        {{ "%.1f"|format(file.size / 1024) }} KB • {{ file.modified.split('T')[0] }}
+                                    </div>
+                                {% endif %}
+                            </div>
+                            {% if file.type == 'file' %}
+                                <div class="file-actions">
+                                    <button class="btn-success btn-small" onclick="executeFileQuick('{{ file.path }}')">▶️</button>
+                                    <button class="btn-danger btn-small" onclick="deleteFile('{{ file.path }}')">🗑️</button>
+                                </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div style="text-align: center; color: #666; padding: 40px;">
+                            No files found. Create your first file!
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- File Editor -->
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2>File Editor</h2>
+                    <div>
+                        <button id="saveBtn" class="btn-primary btn-small" onclick="saveFile()" disabled>💾 Save</button>
+                        <button id="executeBtn" class="btn-success btn-small" onclick="showExecuteModal()" disabled>▶️ Execute</button>
+                    </div>
+                </div>
+                
+                <div id="editorContainer">
+                    <div id="noFileSelected" style="text-align: center; color: #666; padding: 40px;">
+                        Select a file to edit
+                    </div>
+                    
+                    <div id="fileEditor" class="hidden">
+                        <div class="form-group">
+                            <input type="text" id="currentFileName" placeholder="filename.py" class="editor">
+                        </div>
+                        <div class="form-group">
+                            <textarea id="fileContent" rows="15" class="editor" placeholder="Enter your code here..."></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Execution Output -->
+        <div class="card">
+            <h2>Execution Output</h2>
+            <div id="executionOutput" class="output">
+                No executions yet. Execute a file to see output here.
+            </div>
+        </div>
+
+        <!-- Execution History -->
+        <div class="card">
+            <h2>Recent Executions</h2>
+            {% if execution_history %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Command</th>
+                            <th>Time</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for exec in execution_history %}
+                        <tr>
+                            <td>{{ exec.file_path }}</td>
+                            <td style="font-family: monospace; font-size: 12px;">{{ exec.command[:40] }}{% if exec.command|length > 40 %}...{% endif %}</td>
+                            <td>{{ exec.timestamp.split('T')[1].split('.')[0] }}</td>
+                            <td>{{ "%.2f"|format(exec.execution_time) }}s</td>
+                            <td class="{% if exec.success %}status-success{% else %}status-failed{% endif %}">
+                                {% if exec.success %}✅ Success{% else %}❌ Failed{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <div style="text-align: center; color: #666; padding: 20px;">
+                    No executions yet
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- New File Modal -->
+    <div id="newFileModal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Create New File</h3>
+            <form id="newFileForm">
+                <div class="form-group">
+                    <label>File Name</label>
+                    <input type="text" name="filename" placeholder="script.py" required>
+                </div>
+                <div style="text-align: right; margin-top: 20px;">
+                    <button type="button" onclick="hideNewFileModal()" class="btn-warning">Cancel</button>
+                    <button type="submit" class="btn-success">Create</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Execute Modal -->
+    <div id="executeModal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Execute File</h3>
+            <form id="executeForm">
+                <div class="form-group">
+                    <label>Interpreter</label>
+                    <select name="interpreter">
+                        <option value="python">Python</option>
+                        <option value="bash">Bash</option>
+                        <option value="node">Node.js</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Arguments (optional)</label>
+                    <input type="text" name="args" placeholder="--arg1 value1">
+                </div>
+                <div class="form-group">
+                    <label>Timeout (seconds)</label>
+                    <input type="number" name="timeout" value="300" min="1" max="3600">
+                </div>
+                <div style="text-align: right; margin-top: 20px;">
+                    <button type="button" onclick="hideExecuteModal()" class="btn-warning">Cancel</button>
+                    <button type="submit" class="btn-success">Execute</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let currentFilePath = null;
+        let isModified = false;
+
+        // File operations
+        async function loadFile(filePath) {
+            try {
+                const response = await fetch('/api/files/read/' + encodeURIComponent(filePath));
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentFilePath = filePath;
+                    document.getElementById('currentFileName').value = filePath;
+                    document.getElementById('fileContent').value = data.content;
+                    
+                    document.getElementById('noFileSelected').style.display = 'none';
+                    document.getElementById('fileEditor').classList.remove('hidden');
+                    
+                    document.getElementById('saveBtn').disabled = false;
+                    document.getElementById('executeBtn').disabled = false;
+                    
+                    isModified = false;
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Failed to load file');
+            }
+        }
+
+        async function saveFile() {
+            if (!currentFilePath) return;
+            
+            const content = document.getElementById('fileContent').value;
+            const fileName = document.getElementById('currentFileName').value;
+            
+            try {
+                const response = await fetch('/api/files/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_path: fileName, content: content })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('File saved successfully');
+                    currentFilePath = fileName;
+                    isModified = false;
+                    refreshFiles();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Failed to save file');
+            }
+        }
+
+        async function executeFile(interpreter, args, timeout) {
+            if (!currentFilePath) return;
+            
+            // Save first if modified
+            if (isModified) {
+                await saveFile();
+            }
+            
+            try {
+                const response = await fetch('/api/files/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        file_path: currentFilePath, 
+                        interpreter: interpreter,
+                        args: args,
+                        timeout: timeout
+                    })
+                });
+                
+                const data = await response.json();
+                
+                const outputDiv = document.getElementById('executionOutput');
+                outputDiv.innerHTML = `
+                    <div style="margin-bottom: 10px;">
+                        <strong>Executed:</strong> ${currentFilePath}
+                        <span style="margin-left: 20px; color: ${data.success ? '#0f0' : '#f00'};">
+                            ${data.success ? '✅ SUCCESS' : '❌ FAILED'} (${data.execution_time?.toFixed(2)}s)
+                        </span>
+                    </div>
+                    ${data.stdout ? `<div><strong>Output:</strong><pre style="color: #0f0;">${data.stdout}</pre></div>` : ''}
+                    ${data.stderr ? `<div><strong>Error:</strong><pre style="color: #f00;">${data.stderr}</pre></div>` : ''}
+                `;
+                
+                hideExecuteModal();
+                
+                if (data.success) {
+                    alert('File executed successfully');
+                } else {
+                    alert('File execution failed');
+                }
+                
+                // Refresh execution history
+                setTimeout(() => location.reload(), 1000);
+                
+            } catch (error) {
+                alert('Failed to execute file');
+            }
+        }
+
+        async function executeFileQuick(filePath) {
+            try {
+                const response = await fetch('/api/files/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_path: filePath })
+                });
+                
+                const data = await response.json();
+                
+                const outputDiv = document.getElementById('executionOutput');
+                outputDiv.innerHTML = `
+                    <div style="margin-bottom: 10px;">
+                        <strong>Quick Execute:</strong> ${filePath}
+                        <span style="margin-left: 20px; color: ${data.success ? '#0f0' : '#f00'};">
+                            ${data.success ? '✅ SUCCESS' : '❌ FAILED'} (${data.execution_time?.toFixed(2)}s)
+                        </span>
+                    </div>
+                    ${data.stdout ? `<div><strong>Output:</strong><pre style="color: #0f0;">${data.stdout}</pre></div>` : ''}
+                    ${data.stderr ? `<div><strong>Error:</strong><pre style="color: #f00;">${data.stderr}</pre></div>` : ''}
+                `;
+                
+                if (data.success) {
+                    alert('File executed successfully');
+                } else {
+                    alert('File execution failed');
+                }
+                
+                // Refresh execution history
+                setTimeout(() => location.reload(), 1000);
+                
+            } catch (error) {
+                alert('Failed to execute file');
+            }
+        }
+
+        async function deleteFile(filePath) {
+            if (!confirm('Are you sure you want to delete ' + filePath + '?')) return;
+            
+            try {
+                const response = await fetch('/api/files/delete/' + encodeURIComponent(filePath), {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('File deleted successfully');
+                    refreshFiles();
+                    
+                    if (currentFilePath === filePath) {
+                        document.getElementById('noFileSelected').style.display = 'block';
+                        document.getElementById('fileEditor').classList.add('hidden');
+                        currentFilePath = null;
+                    }
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Failed to delete file');
+            }
+        }
+
+        function refreshFiles() {
+            location.reload();
+        }
+
+        // Modal functions
+        function showNewFileModal() {
+            document.getElementById('newFileModal').classList.remove('hidden');
+        }
+
+        function hideNewFileModal() {
+            document.getElementById('newFileModal').classList.add('hidden');
+            document.getElementById('newFileForm').reset();
+        }
+
+        function showExecuteModal() {
+            document.getElementById('executeModal').classList.remove('hidden');
+        }
+
+        function hideExecuteModal() {
+            document.getElementById('executeModal').classList.add('hidden');
+        }
+
+        // Form submissions
+        document.getElementById('newFileForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const filename = e.target.filename.value;
+            
+            currentFilePath = filename;
+            document.getElementById('currentFileName').value = filename;
+            document.getElementById('fileContent').value = '';
+            
+            document.getElementById('noFileSelected').style.display = 'none';
+            document.getElementById('fileEditor').classList.remove('hidden');
+            
+            document.getElementById('saveBtn').disabled = false;
+            document.getElementById('executeBtn').disabled = false;
+            
+            hideNewFileModal();
+        });
+
+        document.getElementById('executeForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            executeFile(data.interpreter, data.args, parseInt(data.timeout));
+        });
+
+        // Track modifications
+        document.getElementById('fileContent').addEventListener('input', function() {
+            isModified = true;
+        });
+    </script>
+</body>
+</html>
+"""
+
 # === Scheduler Service (Enhanced) ===
 class SimpleScheduler:
     def __init__(self):
@@ -708,6 +1149,249 @@ class SimpleScheduler:
 # Initialize scheduler
 scheduler = SimpleScheduler()
 
+# === File Manager Service ===
+class SimpleFileManager:
+    def __init__(self):
+        self.executions = []
+        self.executions_file = "executions.json"
+        self._load_executions()
+    
+    def _load_executions(self):
+        try:
+            if os.path.exists(self.executions_file):
+                with open(self.executions_file, 'r') as f:
+                    self.executions = json.load(f)
+                    debug_print(f"Loaded {len(self.executions)} execution records")
+        except Exception as e:
+            debug_print(f"Error loading executions: {e}")
+            self.executions = []
+    
+    def _save_executions(self):
+        try:
+            # Keep only last 100 executions
+            self.executions = self.executions[-100:]
+            with open(self.executions_file, 'w') as f:
+                json.dump(self.executions, f, indent=2)
+        except Exception as e:
+            debug_print(f"Error saving executions: {e}")
+    
+    def get_workspace_files(self, path="."):
+        files = []
+        try:
+            if not os.path.exists(path):
+                return files
+            
+            for item in os.listdir(path):
+                if item.startswith('.'):
+                    continue
+                    
+                item_path = os.path.join(path, item)
+                
+                if os.path.isfile(item_path):
+                    stat = os.stat(item_path)
+                    files.append({
+                        "name": item,
+                        "path": item_path,
+                        "size": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "type": "file"
+                    })
+                elif os.path.isdir(item_path):
+                    files.append({
+                        "name": item,
+                        "path": item_path,
+                        "type": "directory"
+                    })
+        
+        except Exception as e:
+            debug_print(f"Error listing files: {e}")
+        
+        return sorted(files, key=lambda x: (x["type"] == "file", x["name"]))
+    
+    def read_file(self, file_path):
+        try:
+            if not os.path.exists(file_path):
+                return None, "File not found"
+            
+            if os.path.getsize(file_path) > 1024 * 1024:  # 1MB limit
+                return None, "File too large to display"
+            
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            
+            return content, None
+            
+        except Exception as e:
+            return None, str(e)
+    
+    def save_file(self, file_path, content):
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(file_path) if os.path.dirname(file_path) else '.', exist_ok=True)
+            
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            log_event("file_saved", f"File saved: {file_path}", "event")
+            return True, "File saved successfully"
+            
+        except Exception as e:
+            log_event("file_save_error", f"Error saving file {file_path}: {e}", "error")
+            return False, str(e)
+    
+    def delete_file(self, file_path):
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                log_event("file_deleted", f"File deleted: {file_path}", "event")
+                return True, "File deleted successfully"
+            else:
+                return False, "File not found"
+                
+        except Exception as e:
+            log_event("file_delete_error", f"Error deleting file {file_path}: {e}", "error")
+            return False, str(e)
+    
+    def execute_file(self, file_path, interpreter="python", args="", timeout=300):
+        execution_id = f"exec_{int(time.time())}"
+        
+        try:
+            if not os.path.exists(file_path):
+                return {"success": False, "error": "File not found", "execution_id": execution_id}
+            
+            # Build command
+            if interpreter == "python":
+                command = f"python {file_path} {args}".strip()
+            elif interpreter == "bash":
+                command = f"bash {file_path} {args}".strip()
+            elif interpreter == "node":
+                command = f"node {file_path} {args}".strip()
+            else:
+                command = f"{interpreter} {file_path} {args}".strip()
+            
+            log_event("file_execute_start", f"Executing: {command}", "event")
+            debug_print(f"FILE EXEC: Starting execution of {command}")
+            
+            start_time = time.time()
+            
+            # Execute command
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=os.path.dirname(file_path) if os.path.dirname(file_path) else "."
+            )
+            
+            end_time = time.time()
+            execution_time = end_time - start_time
+            
+            # Record execution
+            execution_record = {
+                "id": execution_id,
+                "file_path": file_path,
+                "command": command,
+                "timestamp": datetime.now().isoformat(),
+                "execution_time": execution_time,
+                "return_code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "success": result.returncode == 0
+            }
+            
+            self.executions.append(execution_record)
+            self._save_executions()
+            
+            if result.returncode == 0:
+                log_event("file_execute_success", f"File executed successfully: {file_path}", "event", {
+                    "execution_time": execution_time,
+                    "command": command
+                })
+                debug_print(f"FILE EXEC: Success - {execution_time:.2f}s")
+            else:
+                log_event("file_execute_error", f"File execution failed: {file_path}", "error", {
+                    "return_code": result.returncode,
+                    "command": command,
+                    "error": result.stderr[:500]
+                })
+                debug_print(f"FILE EXEC: Failed with code {result.returncode}")
+            
+            return {
+                "success": result.returncode == 0,
+                "execution_id": execution_id,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "return_code": result.returncode,
+                "execution_time": execution_time
+            }
+            
+        except subprocess.TimeoutExpired:
+            error_msg = f"Execution timed out after {timeout} seconds"
+            log_event("file_execute_timeout", f"File execution timeout: {file_path}", "error")
+            debug_print(f"FILE EXEC: Timeout after {timeout}s")
+            
+            execution_record = {
+                "id": execution_id,
+                "file_path": file_path,
+                "command": command if 'command' in locals() else file_path,
+                "timestamp": datetime.now().isoformat(),
+                "execution_time": timeout,
+                "return_code": -1,
+                "stdout": "",
+                "stderr": error_msg,
+                "success": False
+            }
+            
+            self.executions.append(execution_record)
+            self._save_executions()
+            
+            return {
+                "success": False,
+                "execution_id": execution_id,
+                "error": error_msg,
+                "stdout": "",
+                "stderr": error_msg,
+                "return_code": -1,
+                "execution_time": timeout
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            log_event("file_execute_exception", f"File execution exception: {file_path} - {error_msg}", "error")
+            debug_print(f"FILE EXEC: Exception - {error_msg}")
+            
+            execution_record = {
+                "id": execution_id,
+                "file_path": file_path,
+                "command": command if 'command' in locals() else file_path,
+                "timestamp": datetime.now().isoformat(),
+                "execution_time": 0,
+                "return_code": -1,
+                "stdout": "",
+                "stderr": error_msg,
+                "success": False
+            }
+            
+            self.executions.append(execution_record)
+            self._save_executions()
+            
+            return {
+                "success": False,
+                "execution_id": execution_id,
+                "error": error_msg,
+                "stdout": "",
+                "stderr": error_msg,
+                "return_code": -1,
+                "execution_time": 0
+            }
+    
+    def get_execution_history(self, limit=20):
+        return self.executions[-limit:] if self.executions else []
+
+# Initialize file manager
+file_manager = SimpleFileManager()
+
 # === Routes ===
 @app.route("/")
 def dashboard():
@@ -717,6 +1401,12 @@ def dashboard():
 def scheduler_page():
     schedules = scheduler.get_schedules()
     return render_template_string(SCHEDULER_HTML, schedules=schedules)
+
+@app.route("/files")
+def files_page():
+    files = file_manager.get_workspace_files()
+    execution_history = file_manager.get_execution_history()
+    return render_template_string(FILES_HTML, files=files, execution_history=execution_history)
 
 @app.route("/api/status")
 def get_status():
@@ -794,6 +1484,75 @@ def list_schedules():
     try:
         schedules = scheduler.get_schedules()
         return jsonify({"success": True, "schedules": schedules})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# File Manager API Routes
+@app.route("/api/files/list")
+def list_files():
+    try:
+        path = request.args.get('path', '.')
+        files = file_manager.get_workspace_files(path)
+        return jsonify({"success": True, "files": files, "current_path": path})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/files/read/<path:file_path>")
+def read_file(file_path):
+    try:
+        content, error = file_manager.read_file(file_path)
+        if error:
+            return jsonify({"success": False, "error": error}), 400
+        return jsonify({"success": True, "content": content, "file_path": file_path})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/files/save", methods=['POST'])
+def save_file():
+    try:
+        data = request.get_json()
+        file_path = data.get('file_path')
+        content = data.get('content', '')
+        
+        if not file_path:
+            return jsonify({"success": False, "error": "File path is required"}), 400
+        
+        success, message = file_manager.save_file(file_path, content)
+        return jsonify({"success": success, "message": message})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/files/delete/<path:file_path>", methods=['DELETE'])
+def delete_file(file_path):
+    try:
+        success, message = file_manager.delete_file(file_path)
+        return jsonify({"success": success, "message": message})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/files/execute", methods=['POST'])
+def execute_file():
+    try:
+        data = request.get_json()
+        file_path = data.get('file_path')
+        interpreter = data.get('interpreter', 'python')
+        args = data.get('args', '')
+        timeout = data.get('timeout', 300)
+        
+        if not file_path:
+            return jsonify({"success": False, "error": "File path is required"}), 400
+        
+        result = file_manager.execute_file(file_path, interpreter, args, timeout)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/files/execution-history")
+def get_execution_history():
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        history = file_manager.get_execution_history(limit)
+        return jsonify({"success": True, "history": history})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
