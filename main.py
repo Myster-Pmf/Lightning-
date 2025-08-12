@@ -120,6 +120,11 @@ SIMPLE_DASHBOARD_HTML = """
             <button class="restart" onclick="restartStudio()">Restart Studio</button>
         </div>
         
+        <div style="margin: 20px 0;">
+            <a href="/scheduler" style="display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin-right: 10px;">⏰ Scheduler</a>
+            <span style="color: #666;">Automate studio start/stop operations</span>
+        </div>
+        
         <div id="message" style="margin: 20px 0; padding: 10px; border-radius: 4px; display: none;"></div>
     </div>
 
@@ -193,10 +198,244 @@ SIMPLE_DASHBOARD_HTML = """
 </html>
 """
 
+# Simple Scheduler HTML template
+SCHEDULER_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scheduler - Lightning AI Studio</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: white; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .nav { margin: 20px 0; }
+        .nav a { color: #007bff; text-decoration: none; margin-right: 20px; }
+        .nav a:hover { text-decoration: underline; }
+        .card { background: #333; border-radius: 8px; padding: 20px; margin: 20px 0; }
+        .form-group { margin: 15px 0; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #555; border-radius: 4px; background: #222; color: white; }
+        button { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin: 5px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-warning { background: #ffc107; color: black; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #555; }
+        th { background: #444; }
+        .status-enabled { color: #28a745; }
+        .status-disabled { color: #dc3545; }
+        .hidden { display: none; }
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; }
+        .modal-content { background: #333; margin: 5% auto; padding: 20px; width: 80%; max-width: 500px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/">← Back to Dashboard</a>
+        </div>
+        
+        <h1>⏰ Schedule Manager</h1>
+        
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Active Schedules</h2>
+                <button class="btn-success" onclick="showAddModal()">+ Add Schedule</button>
+            </div>
+            
+            {% if schedules %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Action</th>
+                            <th>Scheduled Time</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for schedule in schedules %}
+                        <tr>
+                            <td>{{ schedule.name }}</td>
+                            <td>
+                                <span style="padding: 4px 8px; border-radius: 4px; font-size: 12px;
+                                    {% if schedule.action == 'start' %}background: #28a745;
+                                    {% elif schedule.action == 'stop' %}background: #dc3545;
+                                    {% elif schedule.action == 'restart' %}background: #ffc107; color: black;
+                                    {% endif %}">
+                                    {{ schedule.action.title() }}
+                                </span>
+                            </td>
+                            <td>{{ schedule.schedule_time }}</td>
+                            <td class="{% if schedule.enabled %}status-enabled{% else %}status-disabled{% endif %}">
+                                {% if schedule.enabled %}Enabled{% else %}Disabled{% endif %}
+                            </td>
+                            <td>
+                                <button class="btn-danger" onclick="deleteSchedule('{{ schedule.id }}')">Delete</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p style="text-align: center; color: #666; margin: 40px 0;">
+                    No schedules configured. Create your first automated schedule!
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Add Schedule Modal -->
+    <div id="addModal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Add New Schedule</h3>
+            <form id="scheduleForm">
+                <div class="form-group">
+                    <label>Schedule Name</label>
+                    <input type="text" name="name" required placeholder="e.g., Morning Startup">
+                </div>
+                
+                <div class="form-group">
+                    <label>Action</label>
+                    <select name="action" required>
+                        <option value="start">Start Studio</option>
+                        <option value="stop">Stop Studio</option>
+                        <option value="restart">Restart Studio</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Scheduled Time</label>
+                    <input type="datetime-local" name="schedule_time" required>
+                </div>
+                
+                <div style="text-align: right; margin-top: 20px;">
+                    <button type="button" onclick="hideAddModal()" class="btn-warning">Cancel</button>
+                    <button type="submit" class="btn-success">Create Schedule</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function showAddModal() {
+            document.getElementById('addModal').classList.remove('hidden');
+        }
+        
+        function hideAddModal() {
+            document.getElementById('addModal').classList.add('hidden');
+            document.getElementById('scheduleForm').reset();
+        }
+        
+        async function deleteSchedule(scheduleId) {
+            if (!confirm('Are you sure you want to delete this schedule?')) return;
+            
+            try {
+                const response = await fetch('/api/scheduler/delete/' + scheduleId, { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Failed to delete schedule');
+            }
+        }
+        
+        document.getElementById('scheduleForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            try {
+                const response = await fetch('/api/scheduler/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    hideAddModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                alert('Failed to create schedule');
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+
+# === Scheduler Service (Simple) ===
+class SimpleScheduler:
+    def __init__(self):
+        self.schedules = []
+        self.schedules_file = "schedules.json"
+        self._load_schedules()
+    
+    def _load_schedules(self):
+        try:
+            if os.path.exists(self.schedules_file):
+                with open(self.schedules_file, 'r') as f:
+                    self.schedules = json.load(f)
+                    debug_print(f"Loaded {len(self.schedules)} schedules")
+        except Exception as e:
+            debug_print(f"Error loading schedules: {e}")
+            self.schedules = []
+    
+    def _save_schedules(self):
+        try:
+            with open(self.schedules_file, 'w') as f:
+                json.dump(self.schedules, f, indent=2)
+        except Exception as e:
+            debug_print(f"Error saving schedules: {e}")
+    
+    def add_schedule(self, name, action, schedule_time):
+        schedule_id = f"schedule_{int(time.time())}"
+        schedule = {
+            "id": schedule_id,
+            "name": name,
+            "action": action,
+            "schedule_time": schedule_time,
+            "enabled": True,
+            "created_at": datetime.now().isoformat()
+        }
+        self.schedules.append(schedule)
+        self._save_schedules()
+        log_event("schedule_added", f"Schedule '{name}' added", "event", schedule)
+        return schedule_id
+    
+    def get_schedules(self):
+        return self.schedules.copy()
+    
+    def delete_schedule(self, schedule_id):
+        self.schedules = [s for s in self.schedules if s["id"] != schedule_id]
+        self._save_schedules()
+        log_event("schedule_deleted", f"Schedule {schedule_id} deleted", "event")
+
+# Initialize scheduler
+scheduler = SimpleScheduler()
+
 # === Routes ===
 @app.route("/")
 def dashboard():
     return render_template_string(SIMPLE_DASHBOARD_HTML)
+
+@app.route("/scheduler")
+def scheduler_page():
+    schedules = scheduler.get_schedules()
+    return render_template_string(SCHEDULER_HTML, schedules=schedules)
 
 @app.route("/api/status")
 def get_status():
@@ -244,6 +483,38 @@ def restart_studio():
         error_str = str(e)
         log_event("manual_restart_error", f"Manual restart failed: {error_str}", "error")
         return jsonify({"success": False, "error": error_str}), 500
+
+@app.route("/api/scheduler/add", methods=['POST'])
+def add_schedule():
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        action = data.get('action')
+        schedule_time = data.get('schedule_time')
+        
+        if not all([name, action, schedule_time]):
+            return jsonify({"success": False, "error": "Missing required fields"}), 400
+        
+        schedule_id = scheduler.add_schedule(name, action, schedule_time)
+        return jsonify({"success": True, "schedule_id": schedule_id, "message": "Schedule created successfully"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/scheduler/delete/<schedule_id>", methods=['POST'])
+def delete_schedule(schedule_id):
+    try:
+        scheduler.delete_schedule(schedule_id)
+        return jsonify({"success": True, "message": "Schedule deleted successfully"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/scheduler/list")
+def list_schedules():
+    try:
+        schedules = scheduler.get_schedules()
+        return jsonify({"success": True, "schedules": schedules})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 # === Monitor Logic ===
 def monitor_loop():
