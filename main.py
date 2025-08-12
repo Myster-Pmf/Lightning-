@@ -529,6 +529,7 @@ FILES_HTML = """
                     <h2>Workspace Files</h2>
                     <div>
                         <button class="btn-success btn-small" onclick="showNewFileModal()">+ New</button>
+                        <button class="btn-warning btn-small" onclick="showUploadModal()">📤 Upload</button>
                         <button class="btn-primary btn-small" onclick="refreshFiles()">🔄 Refresh</button>
                     </div>
                 </div>
@@ -551,6 +552,7 @@ FILES_HTML = """
                             {% if file.type == 'file' %}
                                 <div class="file-actions">
                                     <button class="btn-success btn-small" onclick="executeFileQuick('{{ file.path }}')">▶️</button>
+                                    <button class="btn-primary btn-small" onclick="downloadFile('{{ file.path }}')">📥</button>
                                     <button class="btn-danger btn-small" onclick="deleteFile('{{ file.path }}')">🗑️</button>
                                 </div>
                             {% endif %}
@@ -599,6 +601,20 @@ FILES_HTML = """
             </div>
         </div>
 
+        <!-- Startup Scripts -->
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2>🚀 Startup Scripts</h2>
+                <button class="btn-success btn-small" onclick="showStartupScriptModal()">+ Add Startup Script</button>
+            </div>
+            
+            <div id="startupScripts">
+                <div style="text-align: center; color: #666; padding: 20px;">
+                    No startup scripts configured. Add scripts to run automatically when the studio starts.
+                </div>
+            </div>
+        </div>
+
         <!-- Execution History -->
         <div class="card">
             <h2>Recent Executions</h2>
@@ -615,7 +631,7 @@ FILES_HTML = """
                     </thead>
                     <tbody>
                         {% for exec in execution_history %}
-                        <tr>
+                        <tr onclick="viewExecution('{{ exec.id }}')" style="cursor: pointer;">
                             <td>{{ exec.file_path }}</td>
                             <td style="font-family: monospace; font-size: 12px;">{{ exec.command[:40] }}{% if exec.command|length > 40 %}...{% endif %}</td>
                             <td>{{ exec.timestamp.split('T')[1].split('.')[0] }}</td>
@@ -678,6 +694,90 @@ FILES_HTML = """
                     <button type="submit" class="btn-success">Execute</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Upload File</h3>
+            <form id="uploadForm" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label>Select File</label>
+                    <input type="file" name="file" required style="background: #444; color: white;">
+                </div>
+                <div style="text-align: right; margin-top: 20px;">
+                    <button type="button" onclick="hideUploadModal()" class="btn-warning">Cancel</button>
+                    <button type="submit" class="btn-success">Upload</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Startup Script Modal -->
+    <div id="startupScriptModal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Add Startup Script</h3>
+            <form id="startupScriptForm">
+                <div class="form-group">
+                    <label>Script Name</label>
+                    <input type="text" name="name" placeholder="My Startup Script" required>
+                </div>
+                <div class="form-group">
+                    <label>Script Type</label>
+                    <select name="type" onchange="toggleScriptFields(this.value)">
+                        <option value="workspace">Workspace File</option>
+                        <option value="remote">Remote Machine File</option>
+                        <option value="command">Direct Command</option>
+                    </select>
+                </div>
+                <div class="form-group" id="workspaceFileField">
+                    <label>Workspace File Path</label>
+                    <input type="text" name="workspace_file" placeholder="script.py">
+                </div>
+                <div class="form-group hidden" id="remoteFileField">
+                    <label>Remote File Path</label>
+                    <input type="text" name="remote_file" placeholder="/home/user/script.py">
+                </div>
+                <div class="form-group hidden" id="commandField">
+                    <label>Command</label>
+                    <input type="text" name="command" placeholder="pip install -r requirements.txt">
+                </div>
+                <div class="form-group">
+                    <label>Interpreter</label>
+                    <select name="interpreter">
+                        <option value="python">Python</option>
+                        <option value="bash">Bash</option>
+                        <option value="node">Node.js</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Arguments (optional)</label>
+                    <input type="text" name="args" placeholder="--verbose">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="enabled" checked> Enabled
+                    </label>
+                </div>
+                <div style="text-align: right; margin-top: 20px;">
+                    <button type="button" onclick="hideStartupScriptModal()" class="btn-warning">Cancel</button>
+                    <button type="submit" class="btn-success">Add Script</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Execution Result Modal -->
+    <div id="executionResultModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 800px;">
+            <h3>Execution Result</h3>
+            <div id="executionResultContent">
+                <!-- Content will be loaded here -->
+            </div>
+            <div style="text-align: right; margin-top: 20px;">
+                <button onclick="hideExecutionResultModal()" class="btn-primary">Close</button>
+            </div>
         </div>
     </div>
 
@@ -852,6 +952,99 @@ FILES_HTML = """
             }
         }
 
+        async function downloadFile(filePath) {
+            try {
+                const response = await fetch('/api/files/download/' + encodeURIComponent(filePath));
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filePath.split('/').pop();
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                } else {
+                    alert('Failed to download file');
+                }
+            } catch (error) {
+                alert('Failed to download file');
+            }
+        }
+
+        async function uploadFile() {
+            const formData = new FormData(document.getElementById('uploadForm'));
+            
+            try {
+                const response = await fetch('/api/files/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('File uploaded successfully');
+                    hideUploadModal();
+                    refreshFiles();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Failed to upload file');
+            }
+        }
+
+        async function viewExecution(executionId) {
+            try {
+                const response = await fetch('/api/files/execution/' + executionId);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const exec = data.execution;
+                    const content = document.getElementById('executionResultContent');
+                    content.innerHTML = `
+                        <div class="form-group">
+                            <label>File:</label>
+                            <div style="background: #222; padding: 8px; border-radius: 4px;">${exec.file_path}</div>
+                        </div>
+                        <div class="form-group">
+                            <label>Command:</label>
+                            <div style="background: #222; padding: 8px; border-radius: 4px; font-family: monospace;">${exec.command}</div>
+                        </div>
+                        <div class="form-group">
+                            <label>Execution Time:</label>
+                            <div style="background: #222; padding: 8px; border-radius: 4px;">${exec.execution_time.toFixed(2)} seconds</div>
+                        </div>
+                        <div class="form-group">
+                            <label>Status:</label>
+                            <div style="background: #222; padding: 8px; border-radius: 4px; color: ${exec.success ? '#0f0' : '#f00'};">
+                                ${exec.success ? '✅ Success' : '❌ Failed'} (Return Code: ${exec.return_code})
+                            </div>
+                        </div>
+                        ${exec.stdout ? `
+                            <div class="form-group">
+                                <label>Output:</label>
+                                <div class="output" style="max-height: 200px;">${exec.stdout}</div>
+                            </div>
+                        ` : ''}
+                        ${exec.stderr ? `
+                            <div class="form-group">
+                                <label>Error:</label>
+                                <div class="output" style="max-height: 200px; color: #f00;">${exec.stderr}</div>
+                            </div>
+                        ` : ''}
+                    `;
+                    document.getElementById('executionResultModal').classList.remove('hidden');
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Failed to load execution result');
+            }
+        }
+
         function refreshFiles() {
             location.reload();
         }
@@ -872,6 +1065,34 @@ FILES_HTML = """
 
         function hideExecuteModal() {
             document.getElementById('executeModal').classList.add('hidden');
+        }
+
+        function showUploadModal() {
+            document.getElementById('uploadModal').classList.remove('hidden');
+        }
+
+        function hideUploadModal() {
+            document.getElementById('uploadModal').classList.add('hidden');
+            document.getElementById('uploadForm').reset();
+        }
+
+        function showStartupScriptModal() {
+            document.getElementById('startupScriptModal').classList.remove('hidden');
+        }
+
+        function hideStartupScriptModal() {
+            document.getElementById('startupScriptModal').classList.add('hidden');
+            document.getElementById('startupScriptForm').reset();
+        }
+
+        function hideExecutionResultModal() {
+            document.getElementById('executionResultModal').classList.add('hidden');
+        }
+
+        function toggleScriptFields(type) {
+            document.getElementById('workspaceFileField').classList.toggle('hidden', type !== 'workspace');
+            document.getElementById('remoteFileField').classList.toggle('hidden', type !== 'remote');
+            document.getElementById('commandField').classList.toggle('hidden', type !== 'command');
         }
 
         // Form submissions
@@ -898,6 +1119,22 @@ FILES_HTML = """
             const data = Object.fromEntries(formData.entries());
             
             executeFile(data.interpreter, data.args, parseInt(data.timeout));
+        });
+
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            uploadFile();
+        });
+
+        document.getElementById('startupScriptForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            data.enabled = formData.get('enabled') === 'on';
+            
+            // Add startup script logic here
+            alert('Startup script functionality will be implemented in the backend');
+            hideStartupScriptModal();
         });
 
         // Track modifications
@@ -1553,6 +1790,52 @@ def get_execution_history():
         limit = request.args.get('limit', 20, type=int)
         history = file_manager.get_execution_history(limit)
         return jsonify({"success": True, "history": history})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/files/execution/<execution_id>")
+def get_execution_result(execution_id):
+    try:
+        for execution in file_manager.executions:
+            if execution["id"] == execution_id:
+                return jsonify({"success": True, "execution": execution})
+        return jsonify({"success": False, "error": "Execution not found"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/files/upload", methods=['POST'])
+def upload_file():
+    try:
+        if 'file' not in request.files:
+            return jsonify({"success": False, "error": "No file provided"}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"success": False, "error": "No file selected"}), 400
+        
+        # Save file to workspace
+        filename = file.filename
+        file_path = os.path.join('.', filename)
+        file.save(file_path)
+        
+        log_event("file_uploaded", f"File '{filename}' uploaded successfully", "event")
+        return jsonify({
+            "success": True,
+            "message": f"File '{filename}' uploaded successfully",
+            "file_path": file_path
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/files/download/<path:file_path>")
+def download_file(file_path):
+    try:
+        if not os.path.exists(file_path):
+            return jsonify({"success": False, "error": "File not found"}), 404
+        
+        from flask import send_file
+        log_event("file_downloaded", f"File downloaded: {file_path}", "event")
+        return send_file(file_path, as_attachment=True, download_name=os.path.basename(file_path))
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
