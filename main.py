@@ -312,10 +312,10 @@ SCHEDULER_HTML = """
                 </div>
                 
                 <div class="form-group">
-                    <label>Scheduled Time (Server Time)</label>
+                    <label>Scheduled Time (Your Local Time)</label>
                     <input type="datetime-local" name="schedule_time" required>
                     <small style="color: #999; font-size: 12px;">
-                        Server time: <span id="serverTime">Loading...</span>
+                        Enter time in your local timezone. Current local time: <span id="localTime">Loading...</span>
                     </small>
                 </div>
                 
@@ -359,6 +359,15 @@ SCHEDULER_HTML = """
             
             const formData = new FormData(e.target);
             const data = Object.fromEntries(formData.entries());
+            
+            // Convert local time to UTC for server
+            if (data.schedule_time) {
+                const localDateTime = new Date(data.schedule_time);
+                // Convert to UTC ISO string, then remove the 'Z' to match server format
+                data.schedule_time = localDateTime.toISOString().slice(0, 19);
+                console.log('Local time selected:', data.schedule_time);
+                console.log('Converted to UTC:', localDateTime.toISOString());
+            }
             
             try {
                 const response = await fetch('/api/scheduler/add', {
@@ -442,18 +451,18 @@ SCHEDULER_HTML = """
         showServerTime();
         setInterval(showServerTime, 60000); // Update every minute
         
-        // Update server time display in modal
-        function updateServerTimeDisplay() {
+        // Update local time display in modal
+        function updateLocalTimeDisplay() {
             const now = new Date();
-            const serverTimeEl = document.getElementById('serverTime');
-            if (serverTimeEl) {
-                serverTimeEl.textContent = now.toLocaleString();
+            const localTimeEl = document.getElementById('localTime');
+            if (localTimeEl) {
+                localTimeEl.textContent = now.toLocaleString();
             }
         }
         
-        // Update server time every second when modal is open
-        setInterval(updateServerTimeDisplay, 1000);
-        updateServerTimeDisplay();
+        // Update local time every second when modal is open
+        setInterval(updateLocalTimeDisplay, 1000);
+        updateLocalTimeDisplay();
     </script>
 </body>
 </html>
