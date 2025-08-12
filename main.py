@@ -252,6 +252,7 @@ SCHEDULER_HTML = """
                             <th>Name</th>
                             <th>Action</th>
                             <th>Scheduled Time</th>
+                            <th>Countdown</th>
                             <th>Status</th>
                             <th>Actions</th>
                         </tr>
@@ -269,7 +270,10 @@ SCHEDULER_HTML = """
                                     {{ schedule.action.title() }}
                                 </span>
                             </td>
-                            <td>{{ schedule.schedule_time }}</td>
+                            <td>{{ schedule.schedule_time.split('T')[0] }} {{ schedule.schedule_time.split('T')[1][:5] }}</td>
+                            <td class="countdown-cell" data-countdown="{{ schedule.countdown_seconds if schedule.countdown_seconds else 0 }}">
+                                <span class="countdown-text">{{ schedule.countdown if schedule.countdown else 'N/A' }}</span>
+                            </td>
                             <td class="{% if schedule.enabled %}status-enabled{% else %}status-disabled{% endif %}">
                                 {% if schedule.enabled %}Enabled{% else %}Disabled{% endif %}
                             </td>
@@ -372,12 +376,74 @@ SCHEDULER_HTML = """
                 alert('Failed to create schedule');
             }
         });
+        
+        // Update countdowns every second
+        function updateCountdowns() {
+            const countdownCells = document.querySelectorAll('.countdown-cell');
+            
+            countdownCells.forEach(cell => {
+                const countdownSeconds = parseInt(cell.dataset.countdown);
+                const countdownText = cell.querySelector('.countdown-text');
+                
+                if (countdownSeconds > 0) {
+                    const newCountdown = countdownSeconds - 1;
+                    cell.dataset.countdown = newCountdown;
+                    
+                    if (newCountdown <= 0) {
+                        countdownText.textContent = 'Executing...';
+                        countdownText.style.color = '#ffc107';
+                        // Reload page after 30 seconds to show updated status
+                        setTimeout(() => location.reload(), 30000);
+                    } else {
+                        const days = Math.floor(newCountdown / 86400);
+                        const hours = Math.floor((newCountdown % 86400) / 3600);
+                        const minutes = Math.floor((newCountdown % 3600) / 60);
+                        const seconds = newCountdown % 60;
+                        
+                        let countdownStr = '';
+                        if (days > 0) {
+                            countdownStr = `${days}d ${hours}h ${minutes}m`;
+                        } else if (hours > 0) {
+                            countdownStr = `${hours}h ${minutes}m ${seconds}s`;
+                        } else if (minutes > 0) {
+                            countdownStr = `${minutes}m ${seconds}s`;
+                        } else {
+                            countdownStr = `${seconds}s`;
+                        }
+                        
+                        countdownText.textContent = countdownStr;
+                        
+                        // Color coding based on time remaining
+                        if (newCountdown <= 60) {
+                            countdownText.style.color = '#dc3545'; // Red for last minute
+                        } else if (newCountdown <= 300) {
+                            countdownText.style.color = '#ffc107'; // Yellow for last 5 minutes
+                        } else {
+                            countdownText.style.color = '#28a745'; // Green for more time
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Start countdown updates
+        setInterval(updateCountdowns, 1000);
+        
+        // Show current server time for timezone reference
+        function showServerTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleString();
+            console.log('Current local time:', timeStr);
+        }
+        
+        showServerTime();
+        setInterval(showServerTime, 60000); // Update every minute
     </script>
 </body>
 </html>
 """
 
-# === Scheduler Service (Simple) ===
+# === Scheduler Service (Enhanced) ===
 class SimpleScheduler:
     def __init__(self):
         self.schedules = []
@@ -409,20 +475,163 @@ class SimpleScheduler:
             "action": action,
             "schedule_time": schedule_time,
             "enabled": True,
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now().isoformat(),
+            "last_run": None,
+            "status": "pending"
         }
         self.schedules.append(schedule)
         self._save_schedules()
-        log_event("schedule_added", f"Schedule '{name}' added", "event", schedule)
+        log_event("schedule_added", f"Schedule '{name}' added for {schedule_time}", "event", schedule)
         return schedule_id
     
     def get_schedules(self):
-        return self.schedules.copy()
+        # Add countdown info to schedules
+        current_time = datetime.now()
+        schedules_with_countdown = []
+        
+        for schedule in self.schedules.copy():
+            schedule_copy = schedule.copy()
+            try:
+                # Parse schedule time (handle both with and without timezone)
+                schedule_dt = datetime.fromisoformat(schedule['schedule_time'].replace('Z', '+00:00'))
+                if schedule_dt.tzinfo is None:
+                    # Treat as local time if no timezone info
+                    schedule_dt = schedule_dt.replace(tzinfo=None)
+                    current_time_for_calc = current_time
+                else:
+                    # Convert to UTC for comparison
+                    current_time_for_calc = current_time
+                
+                time_diff = schedule_dt - current_time_for_calc
+                
+                if time_diff.total_seconds() > 0:
+                    # Future schedule
+                    days = time_diff.days
+                    hours, remainder = divmod(time_diff.seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    
+                    if days > 0:
+                        schedule_copy['countdown'] = f"{days}d {hours}h {minutes}m"
+                    elif hours > 0:
+                        schedule_copy['countdown'] = f"{hours}h {minutes}m {seconds}s"
+                    elif minutes > 0:
+                        schedule_copy['countdown'] = f"{minutes}m {seconds}s"
+                    else:
+                        schedule_copy['countdown'] = f"{seconds}s"
+                    
+                    schedule_copy['countdown_seconds'] = int(time_diff.total_seconds())
+                else:
+                    # Past schedule
+                    schedule_copy['countdown'] = "Overdue"
+                    schedule_copy['countdown_seconds'] = 0
+                    
+            except Exception as e:
+                debug_print(f"Error calculating countdown for schedule {schedule['id']}: {e}")
+                schedule_copy['countdown'] = "Error"
+                schedule_copy['countdown_seconds'] = 0
+            
+            schedules_with_countdown.append(schedule_copy)
+        
+        return schedules_with_countdown
     
     def delete_schedule(self, schedule_id):
         self.schedules = [s for s in self.schedules if s["id"] != schedule_id]
         self._save_schedules()
         log_event("schedule_deleted", f"Schedule {schedule_id} deleted", "event")
+    
+    def execute_schedule(self, schedule):
+        """Execute a scheduled action"""
+        try:
+            action = schedule['action']
+            schedule_id = schedule['id']
+            schedule_name = schedule['name']
+            
+            log_event("schedule_execute", f"Executing schedule '{schedule_name}' - {action}", "event", schedule)
+            
+            if action == "start":
+                if studio:
+                    studio.start(Machine.CPU)
+                    success = True
+                    message = "Studio start initiated"
+                else:
+                    success = False
+                    message = "Studio not initialized"
+            
+            elif action == "stop":
+                if studio:
+                    studio.stop()
+                    success = True
+                    message = "Studio stop initiated"
+                else:
+                    success = False
+                    message = "Studio not initialized"
+            
+            elif action == "restart":
+                if studio:
+                    studio.stop()
+                    time.sleep(5)
+                    studio.start(Machine.CPU)
+                    success = True
+                    message = "Studio restart initiated"
+                else:
+                    success = False
+                    message = "Studio not initialized"
+            
+            else:
+                success = False
+                message = f"Unknown action: {action}"
+            
+            # Update schedule status
+            for i, s in enumerate(self.schedules):
+                if s['id'] == schedule_id:
+                    self.schedules[i]['last_run'] = datetime.now().isoformat()
+                    self.schedules[i]['status'] = 'completed' if success else 'failed'
+                    # Disable one-time schedules after execution
+                    self.schedules[i]['enabled'] = False
+                    break
+            
+            self._save_schedules()
+            
+            log_event(
+                "schedule_completed",
+                f"Schedule '{schedule_name}' completed - {message}",
+                "event" if success else "error",
+                {"schedule_id": schedule_id, "success": success, "message": message}
+            )
+            
+            return success, message
+            
+        except Exception as e:
+            error_msg = f"Error executing schedule {schedule.get('id', 'unknown')}: {e}"
+            debug_print(error_msg)
+            log_event("schedule_error", error_msg, "error")
+            return False, error_msg
+    
+    def check_and_execute_schedules(self):
+        """Check for schedules that need to be executed"""
+        current_time = datetime.now()
+        
+        for schedule in self.schedules:
+            if not schedule.get('enabled', True):
+                continue
+                
+            try:
+                # Parse schedule time
+                schedule_dt = datetime.fromisoformat(schedule['schedule_time'].replace('Z', '+00:00'))
+                if schedule_dt.tzinfo is None:
+                    # Treat as local time if no timezone info
+                    schedule_dt = schedule_dt.replace(tzinfo=None)
+                
+                # Check if it's time to execute (within 1 minute window)
+                time_diff = (current_time - schedule_dt).total_seconds()
+                
+                if 0 <= time_diff <= 60:  # Execute if within 1 minute past scheduled time
+                    debug_print(f"Executing scheduled task: {schedule['name']}")
+                    self.execute_schedule(schedule)
+                    
+            except Exception as e:
+                debug_print(f"Error checking schedule {schedule['id']}: {e}")
+                continue
 
 # Initialize scheduler
 scheduler = SimpleScheduler()
@@ -518,11 +727,15 @@ def list_schedules():
 
 # === Monitor Logic ===
 def monitor_loop():
-    debug_print("Starting monitor loop")
+    debug_print("Starting enhanced monitor loop with scheduler")
     last_known_status = None
+    last_schedule_check = 0
 
     while True:
         try:
+            current_time = time.time()
+            
+            # Check studio status (every 60 seconds)
             if not studio:
                 debug_print("Studio object is None, cannot monitor.")
                 time.sleep(60)
@@ -535,11 +748,21 @@ def monitor_loop():
                 log_event("state_change", f"Status changed from '{last_known_status}' to '{status}'", "event", {"from": last_known_status, "to": status})
                 last_known_status = status
             
+            # Check schedules (every 30 seconds for better precision)
+            if current_time - last_schedule_check >= 30:
+                try:
+                    debug_print("Checking for scheduled tasks...")
+                    scheduler.check_and_execute_schedules()
+                    last_schedule_check = current_time
+                except Exception as e:
+                    debug_print(f"Error checking schedules: {e}")
+                    log_event("scheduler_error", f"Error checking schedules: {e}", "error")
+            
         except Exception as e:
             debug_print(f"CRITICAL: Exception in monitor loop: {e}\n{traceback.format_exc()}")
             log_event("monitor_error", f"Exception in monitor loop: {e}", "error")
         
-        time.sleep(60)
+        time.sleep(30)  # Check more frequently for better schedule precision
 
 if __name__ == "__main__":
     log_event("startup", "Enhanced Lightning AI Dashboard starting")
