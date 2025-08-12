@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+
+{% block title %}Terminal - Lightning AI Studio{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+        <div>
+            <h1 class="text-3xl font-bold mb-2">
+                <i class="fas fa-terminal text-purple-400 mr-3"></i>
+                Python Terminal
+            </h1>
+            <p class="text-gray-400">Interactive Python environment with Lightning SDK</p>
+        </div>
+        
+        <div class="flex space-x-3 mt-4 md:mt-0">
+            <button onclick="resetInterpreter()" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold">
+                <i class="fas fa-sync-alt mr-2"></i>Reset Session
+            </button>
+            <button onclick="clearTerminal()" class="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded-lg font-semibold">
+                <i class="fas fa-eraser mr-2"></i>Clear
+            </button>
+        </div>
+    </div>
+
+    <!-- Quick Commands -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h3 class="text-lg font-semibold mb-4">Quick Commands</h3>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <button class="preset-btn" onclick="runPreset('studio.status')">Studio Status</button>
+            <button class="preset-btn" onclick="runPreset('studio.start(Machine.CPU)')">Start Studio</button>
+            <button class="preset-btn" onclick="runPreset('studio.stop()')">Stop Studio</button>
+            <button class="preset-btn" onclick="runPreset('Studio.list()')">List Studios</button>
+            <button class="preset-btn" onclick="runPreset('datetime.now()')">Current Time</button>
+            <button class="preset-btn" onclick="runPreset('import os; os.getcwd()')">Current Dir</button>
+            <button class="preset-btn" onclick="runPreset('import sys; sys.version')">Python Version</button>
+            <button class="preset-btn" onclick="runPreset('help(studio)')">Studio Help</button>
+        </div>
+    </div>
+
+    <!-- Terminal -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <div id="terminal" class="bg-black rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm"></div>
+        
+        <div class="mt-4 flex items-start space-x-3">
+            <span class="prompt text-green-400 text-lg font-bold mt-2">&gt;&gt;&gt;</span>
+            <div class="flex-1">
+                <textarea id="commandInput" 
+                          class="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-green-400 font-mono text-sm resize-none" 
+                          placeholder="Enter Python code... (Shift+Enter for new line, Enter to execute)"
+                          rows="1"></textarea>
+            </div>
+            <button onclick="runCommand()" 
+                    class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg font-semibold mt-1">
+                <i class="fas fa-play mr-2"></i>Run
+            </button>
+        </div>
+    </div>
+
+    <!-- Help -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h3 class="text-lg font-semibold mb-4">Available Objects & Functions</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+            <div>
+                <h4 class="font-semibold text-blue-400 mb-2">Lightning SDK</h4>
+                <ul class="space-y-1 text-gray-300">
+                    <li><code>studio</code> - Current studio instance</li>
+                    <li><code>Machine</code> - Machine types (CPU, GPU, etc.)</li>
+                    <li><code>Studio</code> - Studio class</li>
+                </ul>
+            </div>
+            <div>
+                <h4 class="font-semibold text-green-400 mb-2">Standard Libraries</h4>
+                <ul class="space-y-1 text-gray-300">
+                    <li><code>os</code> - Operating system interface</li>
+                    <li><code>sys</code> - System-specific parameters</li>
+                    <li><code>time</code> - Time-related functions</li>
+                    <li><code>json</code> - JSON encoder/decoder</li>
+                    <li><code>requests</code> - HTTP library</li>
+                    <li><code>datetime</code> - Date and time handling</li>
+                </ul>
+            </div>
+            <div>
+                <h4 class="font-semibold text-purple-400 mb-2">Tips</h4>
+                <ul class="space-y-1 text-gray-300">
+                    <li>Variables persist between commands</li>
+                    <li>Use Shift+Enter for multi-line input</li>
+                    <li>Press Enter to execute</li>
+                    <li>Use <code>help(object)</code> for documentation</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const terminal = document.getElementById('terminal');
+const commandInput = document.getElementById('commandInput');
+
+function appendToTerminal(htmlContent) {
+    terminal.innerHTML += htmlContent;
+    terminal.scrollTop = terminal.scrollHeight;
+}
+
+function initialMessage() {
+    appendToTerminal(`
+        <span class="text-green-400">🌟 Lightning AI Python Terminal Ready</span><br>
+        <span class="text-blue-400">Python interpreter session started with persistent state.</span><br>
+        <span class="text-blue-400">Available objects: studio, Machine, os, sys, time, datetime, json, requests</span><br>
+        <span class="text-blue-400">Type Python commands below. Variables persist between executions.</span><br>
+        <span class="text-green-400">========================================</span><br><br>
+    `);
+}
+
+function runPreset(command) {
+    commandInput.value = command.replace(/\\n/g, '\n');
+    runCommand();
+}
+
+async function runCommand() {
+    const command = commandInput.value.trim();
+    if (!command) return;
+    
+    // Display the command
+    appendToTerminal(`<span class="text-green-400">&gt;&gt;&gt; </span><span class="text-white">${command.replace(/\n/g, '<br>... ')}</span><br>`);
+    
+    // Clear input and reset height
+    commandInput.value = '';
+    commandInput.style.height = 'auto';
+    
+    try {
+        const response = await fetch('/api/terminal/python', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: command })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            let className = data.type === 'expression' ? 'text-yellow-400' : 'text-blue-400';
+            appendToTerminal(`<span class="${className}">${escapeHtml(data.result)}</span><br>`);
+        } else {
+            appendToTerminal(`<span class="text-red-400">Error: ${escapeHtml(data.error)}</span><br>`);
+            if (data.traceback) {
+                appendToTerminal(`<pre class="text-red-300 text-xs whitespace-pre-wrap">${escapeHtml(data.traceback)}</pre>`);
+            }
+        }
+    } catch (err) {
+        appendToTerminal(`<span class="text-red-400">Fetch Error: ${escapeHtml(err.toString())}</span><br>`);
+    }
+    
+    appendToTerminal('<br>');
+}
+
+async function resetInterpreter() {
+    if (!confirm('Are you sure you want to reset the Python session? All variables will be lost.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/terminal/reset', { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            clearTerminal();
+            initialMessage();
+            appendToTerminal(`<span class="text-green-400">${escapeHtml(data.message)}</span><br><br>`);
+            showNotification('Python session reset successfully', 'success');
+        } else {
+            appendToTerminal(`<span class="text-red-400">Error resetting session</span><br>`);
+        }
+    } catch (err) {
+        appendToTerminal(`<span class="text-red-400">Error resetting session: ${escapeHtml(err.toString())}</span><br>`);
+    }
+}
+
+function clearTerminal() {
+    terminal.innerHTML = '';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function handleKeyDown(event) {
+    // Auto-resize textarea
+    this.style.height = 'auto';
+    this.style.height = (this.scrollHeight) + 'px';
+    
+    // Execute on Enter (but not Shift+Enter)
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        runCommand();
+    }
+}
+
+// Event listeners
+commandInput.addEventListener('keydown', handleKeyDown);
+commandInput.addEventListener('input', handleKeyDown);
+
+// Initialize
+initialMessage();
+
+// Focus on input
+commandInput.focus();
+</script>
+
+<style>
+.preset-btn {
+    background: #374151;
+    color: #10b981;
+    border: 1px solid #6b7280;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.preset-btn:hover {
+    background: #4b5563;
+    border-color: #10b981;
+}
+
+.prompt {
+    font-family: 'Courier New', monospace;
+}
+
+#terminal {
+    color: #10b981;
+    background: #000000;
+    border: 1px solid #374151;
+}
+
+#commandInput {
+    background: #1f2937;
+    color: #10b981;
+    border: 1px solid #374151;
+}
+
+#commandInput:focus {
+    outline: none;
+    border-color: #10b981;
+    box-shadow: 0 0 0 1px #10b981;
+}
+</style>
+{% endblock %}

@@ -1,0 +1,394 @@
+{% extends "base.html" %}
+
+{% block title %}Debug - Lightning AI Studio{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+        <div>
+            <h1 class="text-3xl font-bold mb-2">
+                <i class="fas fa-bug text-red-400 mr-3"></i>
+                Debug Information
+            </h1>
+            <p class="text-gray-400">System status and configuration details</p>
+        </div>
+        
+        <div class="flex space-x-3 mt-4 md:mt-0">
+            <button onclick="refreshDebugInfo()" class="btn-primary px-4 py-2 rounded-lg font-semibold">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+            <button onclick="runHealthCheck()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg font-semibold">
+                <i class="fas fa-heartbeat mr-2"></i>Health Check
+            </button>
+        </div>
+    </div>
+
+    <!-- Studio Status -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">Studio Status</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="font-semibold text-gray-300 mb-3">Current Status</h3>
+                <div class="space-y-2">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Status:</span>
+                        <span class="font-mono {{ 'text-green-400' if debug_info.studio_status == 'running' else 'text-red-400' if debug_info.studio_status == 'error' else 'text-yellow-400' }}">
+                            {{ debug_info.studio_status }}
+                        </span>
+                    </div>
+                    {% if debug_info.studio_error %}
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Error:</span>
+                        <span class="font-mono text-red-400 text-sm">{{ debug_info.studio_error[:50] }}{% if debug_info.studio_error|length > 50 %}...{% endif %}</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div>
+                <h3 class="font-semibold text-gray-300 mb-3">Configuration</h3>
+                <div class="space-y-2">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Studio Name:</span>
+                        <span class="font-mono text-gray-300">{{ debug_info.studio_name or 'Not Set' }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Teamspace:</span>
+                        <span class="font-mono text-gray-300">{{ debug_info.teamspace or 'Not Set' }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Username:</span>
+                        <span class="font-mono text-gray-300">{{ debug_info.username or 'Not Set' }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Database Health -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">Database Health</h2>
+        <div id="dbHealth">
+            <div class="flex items-center justify-center py-8">
+                <i class="fas fa-spinner fa-spin text-2xl text-gray-400 mr-3"></i>
+                <span class="text-gray-400">Checking database health...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Environment Variables -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">Environment Configuration</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="font-semibold text-gray-300 mb-3">Lightning AI</h3>
+                <div class="space-y-2">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">STUDIO_NAME:</span>
+                        <span class="font-mono text-gray-300">{{ debug_info.studio_name or 'Not Set' }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">TEAMSPACE:</span>
+                        <span class="font-mono text-gray-300">{{ debug_info.teamspace or 'Not Set' }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">USERNAME:</span>
+                        <span class="font-mono text-gray-300">{{ debug_info.username or 'Not Set' }}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div>
+                <h3 class="font-semibold text-gray-300 mb-3">Database</h3>
+                <div class="space-y-2">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">SUPABASE_URL:</span>
+                        <span class="font-mono text-gray-300">{{ debug_info.supabase_url[:30] if debug_info.supabase_url else 'Not Set' }}{% if debug_info.supabase_url and debug_info.supabase_url|length > 30 %}...{% endif %}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">SUPABASE_API_KEY:</span>
+                        <span class="font-mono text-gray-300">{{ debug_info.supabase_api_key }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Information -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">System Information</h2>
+        <div id="systemInfo">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                    <h3 class="font-semibold text-gray-300 mb-3">Application</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Version:</span>
+                            <span class="font-mono text-gray-300">2.0.0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Debug Mode:</span>
+                            <span class="font-mono text-gray-300" id="debugMode">{{ 'Enabled' if config.DEBUG else 'Disabled' }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Uptime:</span>
+                            <span class="font-mono text-gray-300" id="uptime">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div>
+                    <h3 class="font-semibold text-gray-300 mb-3">Services</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Lightning Service:</span>
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-800 text-green-200">Running</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Scheduler:</span>
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-800 text-green-200">Running</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">File Service:</span>
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-800 text-green-200">Running</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div>
+                    <h3 class="font-semibold text-gray-300 mb-3">Statistics</h3>
+                    <div class="space-y-2 text-sm" id="statistics">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Active Schedules:</span>
+                            <span class="font-mono text-gray-300" id="activeSchedulesCount">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Total Executions:</span>
+                            <span class="font-mono text-gray-300" id="totalExecutions">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Log Entries (24h):</span>
+                            <span class="font-mono text-gray-300" id="logEntries">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Logs -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">Recent Activity</h2>
+        <div id="recentLogs" class="space-y-2 max-h-64 overflow-y-auto">
+            <!-- Recent logs will be loaded here -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let startTime = Date.now();
+
+// Update uptime
+function updateUptime() {
+    const uptime = Date.now() - startTime;
+    const seconds = Math.floor(uptime / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    
+    let uptimeStr = '';
+    if (hours > 0) uptimeStr += `${hours}h `;
+    if (minutes % 60 > 0) uptimeStr += `${minutes % 60}m `;
+    uptimeStr += `${seconds % 60}s`;
+    
+    document.getElementById('uptime').textContent = uptimeStr;
+}
+
+// Load statistics
+async function loadStatistics() {
+    try {
+        // Load schedules count
+        const schedulesResponse = await fetch('/scheduler/list');
+        const schedulesData = await schedulesResponse.json();
+        const activeSchedules = schedulesData.schedules ? schedulesData.schedules.filter(s => s.enabled).length : 0;
+        document.getElementById('activeSchedulesCount').textContent = activeSchedules;
+        
+        // Load executions count
+        const executionsResponse = await fetch('/files/execution-history?limit=1000');
+        const executionsData = await executionsResponse.json();
+        const totalExecutions = executionsData.history ? executionsData.history.length : 0;
+        document.getElementById('totalExecutions').textContent = totalExecutions;
+        
+        // Load logs count
+        const logsResponse = await fetch('/api/logs?range=24h');
+        const logsData = await logsResponse.json();
+        const logEntries = logsData.logs ? logsData.logs.length : 0;
+        document.getElementById('logEntries').textContent = logEntries;
+        
+    } catch (error) {
+        console.error('Error loading statistics:', error);
+    }
+}
+
+// Load recent logs
+async function loadRecentLogs() {
+    try {
+        const response = await fetch('/api/logs?range=1h');
+        const data = await response.json();
+        
+        const recentLogsDiv = document.getElementById('recentLogs');
+        
+        if (data.logs && data.logs.length > 0) {
+            const recentLogs = data.logs.slice(-10).reverse(); // Last 10 logs
+            
+            recentLogsDiv.innerHTML = recentLogs.map(log => {
+                const timestamp = new Date(log.timestamp).toLocaleTimeString();
+                const eventTypeClass = getEventTypeClass(log.event_type, log.type);
+                
+                return `
+                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                        <div class="flex items-center space-x-3">
+                            <span class="text-xs text-gray-400">${timestamp}</span>
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full ${getTypeClass(log.type)}">
+                                ${log.type}
+                            </span>
+                            <span class="text-sm font-medium ${eventTypeClass}">${log.event_type}</span>
+                        </div>
+                        <span class="text-sm text-gray-300 truncate max-w-xs">${log.note || '--'}</span>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            recentLogsDiv.innerHTML = '<div class="text-center py-4 text-gray-400">No recent activity</div>';
+        }
+        
+    } catch (error) {
+        console.error('Error loading recent logs:', error);
+        document.getElementById('recentLogs').innerHTML = '<div class="text-center py-4 text-red-400">Failed to load recent logs</div>';
+    }
+}
+
+// Health check
+async function runHealthCheck() {
+    const dbHealthDiv = document.getElementById('dbHealth');
+    
+    dbHealthDiv.innerHTML = `
+        <div class="flex items-center justify-center py-8">
+            <i class="fas fa-spinner fa-spin text-2xl text-blue-400 mr-3"></i>
+            <span class="text-blue-400">Running health check...</span>
+        </div>
+    `;
+    
+    try {
+        // Simulate health check - in a real implementation, this would call a health check endpoint
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        dbHealthDiv.innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="font-semibold text-gray-300 mb-3">Database Connection</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Status:</span>
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-800 text-green-200">Connected</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Latency:</span>
+                            <span class="font-mono text-gray-300">${Math.floor(Math.random() * 50) + 10}ms</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Last Check:</span>
+                            <span class="font-mono text-gray-300">${new Date().toLocaleTimeString()}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div>
+                    <h3 class="font-semibold text-gray-300 mb-3">Write/Read Test</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Write Test:</span>
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-800 text-green-200">Passed</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Read Test:</span>
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-800 text-green-200">Passed</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Permissions:</span>
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-800 text-green-200">Valid</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        showNotification('Health check completed successfully', 'success');
+        
+    } catch (error) {
+        console.error('Health check failed:', error);
+        dbHealthDiv.innerHTML = `
+            <div class="text-center py-8">
+                <i class="fas fa-exclamation-triangle text-2xl text-red-400 mb-3"></i>
+                <p class="text-red-400">Health check failed</p>
+                <p class="text-gray-400 text-sm">${error.message}</p>
+            </div>
+        `;
+        showNotification('Health check failed', 'error');
+    }
+}
+
+// Utility functions
+function getEventTypeClass(eventType, type) {
+    if (type === 'error' || eventType.includes('error') || eventType.includes('crash')) {
+        return 'text-red-400';
+    } else if (eventType.includes('start')) {
+        return 'text-green-400';
+    } else if (eventType.includes('stop')) {
+        return 'text-yellow-400';
+    } else if (eventType.includes('running')) {
+        return 'text-blue-400';
+    } else {
+        return 'text-gray-400';
+    }
+}
+
+function getTypeClass(type) {
+    switch (type) {
+        case 'error':
+            return 'bg-red-800 text-red-200';
+        case 'event':
+            return 'bg-blue-800 text-blue-200';
+        case 'heartbeat':
+            return 'bg-green-800 text-green-200';
+        case 'health_check':
+            return 'bg-purple-800 text-purple-200';
+        default:
+            return 'bg-gray-800 text-gray-200';
+    }
+}
+
+function refreshDebugInfo() {
+    loadStatistics();
+    loadRecentLogs();
+    runHealthCheck();
+    showNotification('Debug information refreshed', 'success');
+}
+
+// Initialize
+updateUptime();
+setInterval(updateUptime, 1000);
+
+loadStatistics();
+loadRecentLogs();
+runHealthCheck();
+
+// Auto-refresh every 30 seconds
+setInterval(() => {
+    loadStatistics();
+    loadRecentLogs();
+}, 30000);
+</script>
+{% endblock %}

@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+
+{% block title %}Scheduler - Lightning AI Studio{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+        <div>
+            <h1 class="text-3xl font-bold mb-2">
+                <i class="fas fa-clock text-blue-400 mr-3"></i>
+                Schedule Manager
+            </h1>
+            <p class="text-gray-400">Automate studio start/stop operations</p>
+        </div>
+        
+        <button id="newScheduleBtn" class="btn-primary px-6 py-2 rounded-lg font-semibold flex items-center mt-4 md:mt-0">
+            <i class="fas fa-plus mr-2"></i>New Schedule
+        </button>
+    </div>
+
+    <!-- Active Schedules -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">Active Schedules</h2>
+        
+        {% if schedules %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full">
+                    <thead class="bg-gray-700">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Name</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Action</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Schedule</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Next Run</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Status</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-700">
+                        {% for schedule in schedules %}
+                        <tr class="hover:bg-gray-700">
+                            <td class="px-4 py-4 whitespace-nowrap">
+                                <div class="font-medium">{{ schedule.name }}</div>
+                                {% if schedule.machine_type %}
+                                    <div class="text-sm text-gray-400">{{ schedule.machine_type }}</div>
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-4 whitespace-nowrap">
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full
+                                    {% if schedule.action == 'start' %}bg-green-800 text-green-200
+                                    {% elif schedule.action == 'stop' %}bg-red-800 text-red-200
+                                    {% elif schedule.action == 'restart' %}bg-yellow-800 text-yellow-200
+                                    {% endif %}">
+                                    {{ schedule.action.title() }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-4 whitespace-nowrap text-sm">
+                                {% if schedule.schedule_type == 'once' %}
+                                    Once: {{ schedule.datetime }}
+                                {% elif schedule.schedule_type == 'daily' %}
+                                    Daily at {{ schedule.time }}
+                                {% elif schedule.schedule_type == 'weekly' %}
+                                    Weekly ({{ schedule.days|join(', ') }}) at {{ schedule.time }}
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-4 whitespace-nowrap text-sm">
+                                {% if schedule.next_run %}
+                                    {{ schedule.next_run.split('T')[0] }} {{ schedule.next_run.split('T')[1].split('.')[0] }}
+                                {% else %}
+                                    --
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-4 whitespace-nowrap">
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full
+                                    {% if schedule.enabled %}bg-green-800 text-green-200{% else %}bg-gray-800 text-gray-200{% endif %}">
+                                    {% if schedule.enabled %}Enabled{% else %}Disabled{% endif %}
+                                </span>
+                            </td>
+                            <td class="px-4 py-4 whitespace-nowrap text-sm space-x-2">
+                                <button onclick="toggleSchedule('{{ schedule.id }}')" 
+                                        class="text-blue-400 hover:text-blue-300">
+                                    <i class="fas fa-{% if schedule.enabled %}pause{% else %}play{% endif %}"></i>
+                                </button>
+                                <button onclick="deleteSchedule('{{ schedule.id }}')" 
+                                        class="text-red-400 hover:text-red-300">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-8">
+                <i class="fas fa-calendar-times text-4xl text-gray-500 mb-4"></i>
+                <p class="text-gray-400 text-lg">No schedules configured</p>
+                <p class="text-gray-500">Create your first automated schedule</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- New Schedule Modal -->
+<div id="scheduleModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50">
+    <div class="bg-gray-800 p-6 rounded-lg shadow-2xl max-w-md w-full mx-4 max-h-screen overflow-y-auto">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">New Schedule</h3>
+            <button onclick="closeScheduleModal()" class="text-gray-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <form id="scheduleForm" class="space-y-4">
+            <!-- Schedule Name -->
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Schedule Name</label>
+                <input type="text" name="name" required 
+                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+            </div>
+            
+            <!-- Action -->
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Action</label>
+                <select name="action" required 
+                        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                    <option value="start">Start Studio</option>
+                    <option value="stop">Stop Studio</option>
+                    <option value="restart">Restart Studio</option>
+                </select>
+            </div>
+            
+            <!-- Machine Type (for start/restart) -->
+            <div id="machineTypeDiv">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Machine Type</label>
+                <select name="machine_type" 
+                        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                    <option value="CPU">CPU</option>
+                    <option value="GPU">GPU</option>
+                    <option value="GPU_FAST">GPU Fast</option>
+                </select>
+            </div>
+            
+            <!-- Schedule Type -->
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Schedule Type</label>
+                <select name="schedule_type" required onchange="toggleScheduleFields(this.value)"
+                        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                    <option value="once">One Time</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                </select>
+            </div>
+            
+            <!-- One Time Schedule -->
+            <div id="onceFields">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Date & Time</label>
+                <input type="datetime-local" name="datetime" 
+                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+            </div>
+            
+            <!-- Daily/Weekly Schedule -->
+            <div id="recurringFields" class="hidden space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Time</label>
+                    <input type="time" name="time" 
+                           class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                </div>
+                
+                <!-- Weekly Days -->
+                <div id="weeklyFields" class="hidden">
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Days of Week</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" name="days" value="monday" class="mr-2">
+                            Monday
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" name="days" value="tuesday" class="mr-2">
+                            Tuesday
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" name="days" value="wednesday" class="mr-2">
+                            Wednesday
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" name="days" value="thursday" class="mr-2">
+                            Thursday
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" name="days" value="friday" class="mr-2">
+                            Friday
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" name="days" value="saturday" class="mr-2">
+                            Saturday
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" name="days" value="sunday" class="mr-2">
+                            Sunday
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Post-Start Commands -->
+            <div id="postStartDiv">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Post-Start Commands (optional)</label>
+                <textarea name="post_start_commands" rows="3" placeholder="One command per line"
+                          class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"></textarea>
+                <p class="text-xs text-gray-500 mt-1">Commands to run after studio starts (one per line)</p>
+            </div>
+            
+            <!-- Pre-Stop Commands -->
+            <div id="preStopDiv" class="hidden">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Pre-Stop Commands (optional)</label>
+                <textarea name="pre_stop_commands" rows="3" placeholder="One command per line"
+                          class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"></textarea>
+                <p class="text-xs text-gray-500 mt-1">Commands to run before studio stops (one per line)</p>
+            </div>
+            
+            <!-- Form Actions -->
+            <div class="flex space-x-4 pt-4">
+                <button type="button" onclick="closeScheduleModal()" 
+                        class="flex-1 bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg font-semibold">
+                    Cancel
+                </button>
+                <button type="submit" 
+                        class="flex-1 btn-primary px-4 py-2 rounded-lg font-semibold">
+                    Create Schedule
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Modal functions
+function openScheduleModal() {
+    document.getElementById('scheduleModal').classList.remove('hidden');
+}
+
+function closeScheduleModal() {
+    document.getElementById('scheduleModal').classList.add('hidden');
+    document.getElementById('scheduleForm').reset();
+}
+
+// Form field toggles
+function toggleScheduleFields(scheduleType) {
+    const onceFields = document.getElementById('onceFields');
+    const recurringFields = document.getElementById('recurringFields');
+    const weeklyFields = document.getElementById('weeklyFields');
+    
+    if (scheduleType === 'once') {
+        onceFields.style.display = 'block';
+        recurringFields.classList.add('hidden');
+        weeklyFields.classList.add('hidden');
+    } else {
+        onceFields.style.display = 'none';
+        recurringFields.classList.remove('hidden');
+        
+        if (scheduleType === 'weekly') {
+            weeklyFields.classList.remove('hidden');
+        } else {
+            weeklyFields.classList.add('hidden');
+        }
+    }
+}
+
+// Action change handler
+document.querySelector('select[name="action"]').addEventListener('change', function(e) {
+    const machineTypeDiv = document.getElementById('machineTypeDiv');
+    const postStartDiv = document.getElementById('postStartDiv');
+    const preStopDiv = document.getElementById('preStopDiv');
+    
+    if (e.target.value === 'start' || e.target.value === 'restart') {
+        machineTypeDiv.style.display = 'block';
+        postStartDiv.style.display = 'block';
+        preStopDiv.classList.add('hidden');
+    } else if (e.target.value === 'stop') {
+        machineTypeDiv.style.display = 'none';
+        postStartDiv.style.display = 'none';
+        preStopDiv.classList.remove('hidden');
+    }
+});
+
+// Form submission
+document.getElementById('scheduleForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const data = {};
+    
+    // Convert form data to object
+    for (let [key, value] of formData.entries()) {
+        if (key === 'days') {
+            if (!data.days) data.days = [];
+            data.days.push(value);
+        } else if (key === 'post_start_commands' || key === 'pre_stop_commands') {
+            data[key] = value.split('\n').filter(cmd => cmd.trim());
+        } else {
+            data[key] = value;
+        }
+    }
+    
+    try {
+        const response = await fetch('/scheduler/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('Schedule created successfully', 'success');
+            closeScheduleModal();
+            location.reload(); // Refresh to show new schedule
+        } else {
+            showNotification(result.error || 'Failed to create schedule', 'error');
+        }
+    } catch (error) {
+        showNotification('Failed to create schedule', 'error');
+        console.error('Error creating schedule:', error);
+    }
+});
+
+// Schedule management functions
+async function toggleSchedule(scheduleId) {
+    try {
+        const response = await fetch(`/scheduler/toggle/${scheduleId}`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(result.message, 'success');
+            location.reload();
+        } else {
+            showNotification(result.error || 'Failed to toggle schedule', 'error');
+        }
+    } catch (error) {
+        showNotification('Failed to toggle schedule', 'error');
+        console.error('Error toggling schedule:', error);
+    }
+}
+
+async function deleteSchedule(scheduleId) {
+    if (!confirm('Are you sure you want to delete this schedule?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/scheduler/delete/${scheduleId}`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('Schedule deleted successfully', 'success');
+            location.reload();
+        } else {
+            showNotification(result.error || 'Failed to delete schedule', 'error');
+        }
+    } catch (error) {
+        showNotification('Failed to delete schedule', 'error');
+        console.error('Error deleting schedule:', error);
+    }
+}
+
+// Event listeners
+document.getElementById('newScheduleBtn').addEventListener('click', openScheduleModal);
+
+// Initialize form state
+toggleScheduleFields('once');
+</script>
+{% endblock %}

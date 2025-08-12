@@ -1,0 +1,622 @@
+{% extends "base.html" %}
+
+{% block title %}File Manager - Lightning AI Studio{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+        <div>
+            <h1 class="text-3xl font-bold mb-2">
+                <i class="fas fa-folder text-green-400 mr-3"></i>
+                File Manager
+            </h1>
+            <p class="text-gray-400">Manage and execute files in your workspace</p>
+        </div>
+        
+        <div class="flex space-x-3 mt-4 md:mt-0">
+            <button id="uploadBtn" class="btn-primary px-4 py-2 rounded-lg font-semibold flex items-center">
+                <i class="fas fa-upload mr-2"></i>Upload File
+            </button>
+            <button id="newFileBtn" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg font-semibold flex items-center">
+                <i class="fas fa-plus mr-2"></i>New File
+            </button>
+        </div>
+    </div>
+
+    <!-- File Browser and Editor -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- File Browser -->
+        <div class="card rounded-lg shadow-lg p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold">Workspace Files</h2>
+                <button onclick="refreshFiles()" class="text-gray-400 hover:text-white">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+            
+            <div id="filesList" class="space-y-2 max-h-96 overflow-y-auto">
+                <!-- Files will be loaded here -->
+            </div>
+        </div>
+        
+        <!-- File Editor -->
+        <div class="card rounded-lg shadow-lg p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold">File Editor</h2>
+                <div class="flex space-x-2">
+                    <button id="saveFileBtn" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm" disabled>
+                        <i class="fas fa-save mr-1"></i>Save
+                    </button>
+                    <button id="executeFileBtn" class="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm" disabled>
+                        <i class="fas fa-play mr-1"></i>Execute
+                    </button>
+                </div>
+            </div>
+            
+            <div id="editorContainer">
+                <div id="noFileSelected" class="text-center py-8 text-gray-400">
+                    <i class="fas fa-file-code text-4xl mb-4"></i>
+                    <p>Select a file to edit</p>
+                </div>
+                
+                <div id="fileEditor" class="hidden">
+                    <div class="mb-3">
+                        <input type="text" id="currentFileName" placeholder="filename.py" 
+                               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                    </div>
+                    <textarea id="fileContent" rows="15" 
+                              class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white font-mono text-sm"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Execution Results -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">Execution Results</h2>
+        
+        <div id="executionResults" class="bg-gray-900 rounded-lg p-4 font-mono text-sm max-h-64 overflow-y-auto">
+            <div class="text-gray-400">No executions yet</div>
+        </div>
+    </div>
+
+    <!-- Execution History -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">Execution History</h2>
+        
+        {% if execution_history %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full">
+                    <thead class="bg-gray-700">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">File</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Command</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Time</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Duration</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Status</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-700">
+                        {% for execution in execution_history %}
+                        <tr class="hover:bg-gray-700">
+                            <td class="px-4 py-4 whitespace-nowrap text-sm">{{ execution.file_path }}</td>
+                            <td class="px-4 py-4 text-sm font-mono">{{ execution.command[:50] }}{% if execution.command|length > 50 %}...{% endif %}</td>
+                            <td class="px-4 py-4 whitespace-nowrap text-sm">{{ execution.timestamp.split('T')[1].split('.')[0] }}</td>
+                            <td class="px-4 py-4 whitespace-nowrap text-sm">{{ "%.2f"|format(execution.execution_time) }}s</td>
+                            <td class="px-4 py-4 whitespace-nowrap">
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full
+                                    {% if execution.success %}bg-green-800 text-green-200{% else %}bg-red-800 text-red-200{% endif %}">
+                                    {% if execution.success %}Success{% else %}Failed{% endif %}
+                                </span>
+                            </td>
+                            <td class="px-4 py-4 whitespace-nowrap text-sm">
+                                <button onclick="viewExecutionResult('{{ execution.id }}')" 
+                                        class="text-blue-400 hover:text-blue-300">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-8 text-gray-400">
+                <i class="fas fa-history text-4xl mb-4"></i>
+                <p>No execution history</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- New File Modal -->
+<div id="newFileModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50">
+    <div class="bg-gray-800 p-6 rounded-lg shadow-2xl max-w-md w-full mx-4">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Create New File</h3>
+            <button onclick="closeNewFileModal()" class="text-gray-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <form id="newFileForm">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-300 mb-2">File Name</label>
+                <input type="text" id="newFileName" placeholder="script.py" required
+                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+            </div>
+            
+            <div class="flex space-x-4">
+                <button type="button" onclick="closeNewFileModal()" 
+                        class="flex-1 bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg font-semibold">
+                    Cancel
+                </button>
+                <button type="submit" 
+                        class="flex-1 btn-primary px-4 py-2 rounded-lg font-semibold">
+                    Create
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Execute File Modal -->
+<div id="executeModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50">
+    <div class="bg-gray-800 p-6 rounded-lg shadow-2xl max-w-md w-full mx-4">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Execute File</h3>
+            <button onclick="closeExecuteModal()" class="text-gray-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <form id="executeForm">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Interpreter</label>
+                <select id="interpreter" 
+                        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                    <option value="python">Python</option>
+                    <option value="bash">Bash</option>
+                    <option value="node">Node.js</option>
+                </select>
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Arguments (optional)</label>
+                <input type="text" id="executeArgs" placeholder="--arg1 value1 --arg2 value2"
+                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Timeout (seconds)</label>
+                <input type="number" id="executeTimeout" value="300" min="1" max="3600"
+                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+            </div>
+            
+            <div class="flex space-x-4">
+                <button type="button" onclick="closeExecuteModal()" 
+                        class="flex-1 bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg font-semibold">
+                    Cancel
+                </button>
+                <button type="submit" 
+                        class="flex-1 bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg font-semibold">
+                    Execute
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Upload Modal -->
+<div id="uploadModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50">
+    <div class="bg-gray-800 p-6 rounded-lg shadow-2xl max-w-md w-full mx-4">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Upload File</h3>
+            <button onclick="closeUploadModal()" class="text-gray-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <form id="uploadForm" enctype="multipart/form-data">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Select File</label>
+                <input type="file" id="fileInput" name="file" required
+                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+            </div>
+            
+            <div class="flex space-x-4">
+                <button type="button" onclick="closeUploadModal()" 
+                        class="flex-1 bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg font-semibold">
+                    Cancel
+                </button>
+                <button type="submit" 
+                        class="flex-1 btn-primary px-4 py-2 rounded-lg font-semibold">
+                    Upload
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentFilePath = null;
+let isFileModified = false;
+
+// File browser functions
+async function loadFiles() {
+    try {
+        const response = await fetch('/files/list');
+        const data = await response.json();
+        
+        if (data.success) {
+            const filesList = document.getElementById('filesList');
+            filesList.innerHTML = '';
+            
+            if (data.files.length === 0) {
+                filesList.innerHTML = '<div class="text-gray-400 text-center py-4">No files found</div>';
+                return;
+            }
+            
+            data.files.forEach(file => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'flex items-center justify-between p-3 bg-gray-700 rounded-lg hover:bg-gray-600 cursor-pointer';
+                
+                const isDirectory = file.type === 'directory';
+                const icon = isDirectory ? 'folder' : getFileIcon(file.name);
+                
+                fileItem.innerHTML = `
+                    <div class="flex items-center space-x-3" onclick="${isDirectory ? `loadFiles('${file.path}')` : `loadFile('${file.path}')`}">
+                        <i class="fas fa-${icon} ${isDirectory ? 'text-yellow-400' : 'text-blue-400'}"></i>
+                        <div>
+                            <div class="font-medium">${file.name}</div>
+                            ${!isDirectory ? `<div class="text-xs text-gray-400">${formatFileSize(file.size)} • ${new Date(file.modified).toLocaleDateString()}</div>` : ''}
+                        </div>
+                    </div>
+                    ${!isDirectory ? `
+                        <div class="flex space-x-2">
+                            <button onclick="executeFileQuick('${file.path}')" class="text-green-400 hover:text-green-300">
+                                <i class="fas fa-play"></i>
+                            </button>
+                            <button onclick="deleteFile('${file.path}')" class="text-red-400 hover:text-red-300">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    ` : ''}
+                `;
+                
+                filesList.appendChild(fileItem);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading files:', error);
+        showNotification('Failed to load files', 'error');
+    }
+}
+
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const iconMap = {
+        'py': 'file-code',
+        'js': 'file-code',
+        'html': 'file-code',
+        'css': 'file-code',
+        'json': 'file-code',
+        'txt': 'file-alt',
+        'md': 'file-alt',
+        'sh': 'terminal',
+        'bat': 'terminal'
+    };
+    return iconMap[ext] || 'file';
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// File editor functions
+async function loadFile(filePath) {
+    try {
+        const response = await fetch(`/files/read/${encodeURIComponent(filePath)}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            currentFilePath = filePath;
+            document.getElementById('currentFileName').value = filePath.split('/').pop();
+            document.getElementById('fileContent').value = data.content;
+            
+            document.getElementById('noFileSelected').classList.add('hidden');
+            document.getElementById('fileEditor').classList.remove('hidden');
+            
+            document.getElementById('saveFileBtn').disabled = false;
+            document.getElementById('executeFileBtn').disabled = false;
+            
+            isFileModified = false;
+        } else {
+            showNotification(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error loading file:', error);
+        showNotification('Failed to load file', 'error');
+    }
+}
+
+async function saveFile() {
+    if (!currentFilePath) return;
+    
+    const content = document.getElementById('fileContent').value;
+    const fileName = document.getElementById('currentFileName').value;
+    const filePath = currentFilePath.includes('/') ? 
+        currentFilePath.substring(0, currentFilePath.lastIndexOf('/') + 1) + fileName : 
+        fileName;
+    
+    try {
+        const response = await fetch('/files/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_path: filePath, content: content })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('File saved successfully', 'success');
+            currentFilePath = filePath;
+            isFileModified = false;
+            loadFiles(); // Refresh file list
+        } else {
+            showNotification(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error saving file:', error);
+        showNotification('Failed to save file', 'error');
+    }
+}
+
+async function executeFile() {
+    if (!currentFilePath) return;
+    
+    const interpreter = document.getElementById('interpreter').value;
+    const args = document.getElementById('executeArgs').value;
+    const timeout = parseInt(document.getElementById('executeTimeout').value);
+    
+    try {
+        // Save file first if modified
+        if (isFileModified) {
+            await saveFile();
+        }
+        
+        const response = await fetch('/files/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                file_path: currentFilePath, 
+                interpreter: interpreter,
+                args: args,
+                timeout: timeout
+            })
+        });
+        
+        const data = await response.json();
+        
+        const resultsDiv = document.getElementById('executionResults');
+        resultsDiv.innerHTML = `
+            <div class="mb-2 text-gray-400">Execution of ${currentFilePath}</div>
+            <div class="mb-2">
+                <span class="px-2 py-1 text-xs font-semibold rounded ${data.success ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'}">
+                    ${data.success ? 'SUCCESS' : 'FAILED'}
+                </span>
+                <span class="text-gray-400 ml-2">Duration: ${data.execution_time?.toFixed(2)}s</span>
+            </div>
+            ${data.stdout ? `<div class="mb-2"><strong>Output:</strong><pre class="text-green-400 whitespace-pre-wrap">${data.stdout}</pre></div>` : ''}
+            ${data.stderr ? `<div class="mb-2"><strong>Error:</strong><pre class="text-red-400 whitespace-pre-wrap">${data.stderr}</pre></div>` : ''}
+        `;
+        
+        closeExecuteModal();
+        
+        if (data.success) {
+            showNotification('File executed successfully', 'success');
+        } else {
+            showNotification('File execution failed', 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error executing file:', error);
+        showNotification('Failed to execute file', 'error');
+    }
+}
+
+async function executeFileQuick(filePath) {
+    try {
+        const response = await fetch('/files/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_path: filePath })
+        });
+        
+        const data = await response.json();
+        
+        const resultsDiv = document.getElementById('executionResults');
+        resultsDiv.innerHTML = `
+            <div class="mb-2 text-gray-400">Quick execution of ${filePath}</div>
+            <div class="mb-2">
+                <span class="px-2 py-1 text-xs font-semibold rounded ${data.success ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'}">
+                    ${data.success ? 'SUCCESS' : 'FAILED'}
+                </span>
+                <span class="text-gray-400 ml-2">Duration: ${data.execution_time?.toFixed(2)}s</span>
+            </div>
+            ${data.stdout ? `<div class="mb-2"><strong>Output:</strong><pre class="text-green-400 whitespace-pre-wrap">${data.stdout}</pre></div>` : ''}
+            ${data.stderr ? `<div class="mb-2"><strong>Error:</strong><pre class="text-red-400 whitespace-pre-wrap">${data.stderr}</pre></div>` : ''}
+        `;
+        
+        if (data.success) {
+            showNotification('File executed successfully', 'success');
+        } else {
+            showNotification('File execution failed', 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error executing file:', error);
+        showNotification('Failed to execute file', 'error');
+    }
+}
+
+async function deleteFile(filePath) {
+    if (!confirm(`Are you sure you want to delete ${filePath}?`)) return;
+    
+    try {
+        const response = await fetch(`/files/delete/${encodeURIComponent(filePath)}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('File deleted successfully', 'success');
+            loadFiles();
+            
+            // Clear editor if this was the current file
+            if (currentFilePath === filePath) {
+                document.getElementById('noFileSelected').classList.remove('hidden');
+                document.getElementById('fileEditor').classList.add('hidden');
+                currentFilePath = null;
+            }
+        } else {
+            showNotification(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error deleting file:', error);
+        showNotification('Failed to delete file', 'error');
+    }
+}
+
+// Modal functions
+function openNewFileModal() {
+    document.getElementById('newFileModal').classList.remove('hidden');
+}
+
+function closeNewFileModal() {
+    document.getElementById('newFileModal').classList.add('hidden');
+    document.getElementById('newFileForm').reset();
+}
+
+function openExecuteModal() {
+    document.getElementById('executeModal').classList.remove('hidden');
+}
+
+function closeExecuteModal() {
+    document.getElementById('executeModal').classList.add('hidden');
+}
+
+function openUploadModal() {
+    document.getElementById('uploadModal').classList.remove('hidden');
+}
+
+function closeUploadModal() {
+    document.getElementById('uploadModal').classList.add('hidden');
+    document.getElementById('uploadForm').reset();
+}
+
+function refreshFiles() {
+    loadFiles();
+}
+
+// Event listeners
+document.getElementById('saveFileBtn').addEventListener('click', saveFile);
+document.getElementById('executeFileBtn').addEventListener('click', openExecuteModal);
+document.getElementById('newFileBtn').addEventListener('click', openNewFileModal);
+document.getElementById('uploadBtn').addEventListener('click', openUploadModal);
+
+document.getElementById('fileContent').addEventListener('input', function() {
+    isFileModified = true;
+});
+
+// Form submissions
+document.getElementById('newFileForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const fileName = document.getElementById('newFileName').value;
+    
+    currentFilePath = fileName;
+    document.getElementById('currentFileName').value = fileName;
+    document.getElementById('fileContent').value = '';
+    
+    document.getElementById('noFileSelected').classList.add('hidden');
+    document.getElementById('fileEditor').classList.remove('hidden');
+    
+    document.getElementById('saveFileBtn').disabled = false;
+    document.getElementById('executeFileBtn').disabled = false;
+    
+    closeNewFileModal();
+});
+
+document.getElementById('executeForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    executeFile();
+});
+
+document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    
+    try {
+        const response = await fetch('/files/upload', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('File uploaded successfully', 'success');
+            closeUploadModal();
+            loadFiles();
+        } else {
+            showNotification(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error uploading file:', error);
+        showNotification('Failed to upload file', 'error');
+    }
+});
+
+// View execution result
+async function viewExecutionResult(executionId) {
+    try {
+        const response = await fetch(`/files/execution/${executionId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const result = data.result;
+            const resultsDiv = document.getElementById('executionResults');
+            resultsDiv.innerHTML = `
+                <div class="mb-2 text-gray-400">Execution ${executionId} - ${result.file_path}</div>
+                <div class="mb-2">
+                    <span class="px-2 py-1 text-xs font-semibold rounded ${result.success ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'}">
+                        ${result.success ? 'SUCCESS' : 'FAILED'}
+                    </span>
+                    <span class="text-gray-400 ml-2">Duration: ${result.execution_time?.toFixed(2)}s</span>
+                    <span class="text-gray-400 ml-2">${new Date(result.timestamp).toLocaleString()}</span>
+                </div>
+                <div class="mb-2"><strong>Command:</strong> <code class="text-blue-400">${result.command}</code></div>
+                ${result.stdout ? `<div class="mb-2"><strong>Output:</strong><pre class="text-green-400 whitespace-pre-wrap">${result.stdout}</pre></div>` : ''}
+                ${result.stderr ? `<div class="mb-2"><strong>Error:</strong><pre class="text-red-400 whitespace-pre-wrap">${result.stderr}</pre></div>` : ''}
+            `;
+        }
+    } catch (error) {
+        console.error('Error viewing execution result:', error);
+        showNotification('Failed to load execution result', 'error');
+    }
+}
+
+// Initialize
+loadFiles();
+</script>
+{% endblock %}

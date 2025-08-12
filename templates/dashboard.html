@@ -1,0 +1,466 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Lightning AI Studio{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+        <div>
+            <h1 class="text-3xl md:text-4xl font-bold mb-2">
+                <i class="fas fa-bolt text-yellow-400 mr-3"></i>
+                Lightning AI Studio Dashboard
+            </h1>
+            <p class="text-gray-400 text-lg">
+                Enhanced control panel with scheduling and automation
+            </p>
+        </div>
+        
+        <!-- Quick Actions -->
+        <div class="flex flex-wrap gap-3 mt-4 md:mt-0">
+            <button id="quickStartBtn" class="btn-primary px-4 py-2 rounded-lg font-semibold flex items-center">
+                <i class="fas fa-play mr-2"></i>Quick Start
+            </button>
+            <button id="quickStopBtn" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold flex items-center">
+                <i class="fas fa-stop mr-2"></i>Quick Stop
+            </button>
+            <button id="restartBtn" class="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded-lg font-semibold flex items-center">
+                <i class="fas fa-redo mr-2"></i>Restart
+            </button>
+        </div>
+    </div>
+
+    <!-- Studio Control Panel -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6">
+            <div>
+                <h2 class="text-xl font-semibold mb-2">Studio Control</h2>
+                <p class="text-gray-400">Manage your Lightning AI studio instance</p>
+            </div>
+            
+            <!-- Machine Type Selector -->
+            <div class="mt-4 md:mt-0">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Machine Type</label>
+                <select id="machineTypeSelect" class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                    <option value="CPU">CPU</option>
+                    <option value="GPU">GPU</option>
+                    <option value="GPU_FAST">GPU Fast</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- Control Buttons -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button id="startBtn" class="bg-green-600 hover:bg-green-700 px-6 py-3 rounded-lg font-semibold transition-all transform hover:scale-105 flex items-center justify-center">
+                <i class="fas fa-play mr-2"></i>Start Studio
+            </button>
+            <button id="stopBtn" class="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-lg font-semibold transition-all transform hover:scale-105 flex items-center justify-center">
+                <i class="fas fa-stop mr-2"></i>Stop Studio
+            </button>
+            <button id="restartStudioBtn" class="bg-yellow-600 hover:bg-yellow-700 px-6 py-3 rounded-lg font-semibold transition-all transform hover:scale-105 flex items-center justify-center">
+                <i class="fas fa-redo mr-2"></i>Restart Studio
+            </button>
+        </div>
+    </div>
+
+    <!-- Status and Activity -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Current Status -->
+        <div class="card rounded-lg shadow-lg p-6">
+            <h3 class="text-lg font-semibold mb-4">Current Status</h3>
+            <div id="currentStatus" class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-gray-400">Status:</span>
+                    <span id="statusValue" class="font-semibold">Loading...</span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-gray-400">Last Updated:</span>
+                    <span id="lastUpdated" class="text-sm">--</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Quick Stats -->
+        <div class="card rounded-lg shadow-lg p-6">
+            <h3 class="text-lg font-semibold mb-4">Quick Stats</h3>
+            <div id="quickStats" class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-gray-400">Active Schedules:</span>
+                    <span id="activeSchedules" class="font-semibold">--</span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-gray-400">Recent Executions:</span>
+                    <span id="recentExecutions" class="font-semibold">--</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Quick Links -->
+        <div class="card rounded-lg shadow-lg p-6">
+            <h3 class="text-lg font-semibold mb-4">Quick Links</h3>
+            <div class="space-y-2">
+                <a href="/scheduler" class="block w-full text-left px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+                    <i class="fas fa-clock mr-2"></i>Schedule Management
+                </a>
+                <a href="/files" class="block w-full text-left px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+                    <i class="fas fa-folder mr-2"></i>File Manager
+                </a>
+                <a href="/terminal" class="block w-full text-left px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+                    <i class="fas fa-terminal mr-2"></i>Python Terminal
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Activity Timeline -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+            <div>
+                <h2 class="text-xl font-semibold mb-2">Studio Activity Timeline</h2>
+                <p class="text-gray-400">Real-time activity monitoring</p>
+            </div>
+            
+            <!-- Time Range Selector -->
+            <div class="flex space-x-1 bg-gray-700 p-1 rounded-lg mt-4 md:mt-0">
+                <button id="1h-btn" class="time-range-btn px-3 py-1 rounded-md text-sm font-medium active" onclick="setTimeRange('1h')">1 Hour</button>
+                <button id="24h-btn" class="time-range-btn px-3 py-1 rounded-md text-sm font-medium" onclick="setTimeRange('24h')">24 Hours</button>
+            </div>
+        </div>
+        
+        <div class="h-64">
+            <canvas id="uptimeChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Modal -->
+<div id="modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50">
+    <div class="bg-gray-800 p-8 rounded-lg shadow-2xl text-center max-w-sm w-full mx-4">
+        <h2 id="modalTitle" class="text-2xl font-bold mb-4"></h2>
+        <p id="modalMessage" class="text-lg mb-6"></p>
+        <div id="modalSpinner" class="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-400 mx-auto hidden"></div>
+        <div id="modalActions" class="space-x-2"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentRange = '1h';
+let uptimeChart;
+const chartCanvas = document.getElementById('uptimeChart');
+
+// Status mapping
+const STATUS_MAP = {
+    running: { color: 'rgba(52, 211, 153, 0.8)', label: 'Running' },
+    stopped: { color: 'rgba(239, 68, 68, 0.8)', label: 'Stopped' },
+    starting: { color: 'rgba(251, 191, 36, 0.8)', label: 'Starting' },
+    stopping: { color: 'rgba(249, 115, 22, 0.8)', label: 'Stopping' },
+    restarting: { color: 'rgba(251, 146, 60, 0.8)', label: 'Restarting' },
+    error: { color: 'rgba(190, 24, 93, 0.8)', label: 'Error' },
+    unknown: { color: 'rgba(107, 114, 128, 0.8)', label: 'Unknown' }
+};
+
+// Modal functions
+const modal = document.getElementById('modal');
+const modalTitle = document.getElementById('modalTitle');
+const modalMessage = document.getElementById('modalMessage');
+const modalSpinner = document.getElementById('modalSpinner');
+const modalActions = document.getElementById('modalActions');
+let progressInterval;
+
+function showModal(title, message, actions = [], showSpinner = false) {
+    modalTitle.textContent = title;
+    modalMessage.textContent = message;
+    modalSpinner.style.display = showSpinner ? 'block' : 'none';
+    modalActions.innerHTML = '';
+    
+    actions.forEach(action => {
+        const button = document.createElement('button');
+        button.textContent = action.text;
+        button.className = action.class;
+        button.onclick = action.onclick;
+        modalActions.appendChild(button);
+    });
+    
+    modal.classList.remove('hidden');
+}
+
+function closeModal() {
+    modal.classList.add('hidden');
+    clearInterval(progressInterval);
+}
+
+// Chart functions
+function getStatusFromLog(log) {
+    const type = log.event_type;
+    if (type.includes('running') || type === 'start' || type === 'post_start' || 
+        (type === 'status_check' && log.metadata && log.metadata.status === 'running')) return 'running';
+    if (type.includes('stopped') || type.includes('stop') || 
+        (type === 'status_check' && log.metadata && log.metadata.status === 'stopped')) return 'stopped';
+    if (type.includes('starting') || type.includes('start_begin') || 
+        (type === 'status_check' && log.metadata && log.metadata.status === 'starting')) return 'starting';
+    if (type.includes('stopping') || 
+        (type === 'status_check' && log.metadata && log.metadata.status === 'stopping')) return 'stopping';
+    if (type.includes('restarting') || 
+        (type === 'status_check' && log.metadata && log.metadata.status === 'restarting')) return 'restarting';
+    if (type.includes('error') || 
+        (type === 'status_check' && log.metadata && log.metadata.status === 'error')) return 'error';
+    return 'unknown';
+}
+
+function createChart(logs, range) {
+    const datasets = [];
+    if (logs.length > 0) {
+        for (let i = 0; i < logs.length - 1; i++) {
+            const currentLog = logs[i];
+            const nextLog = logs[i+1];
+            const status = getStatusFromLog(currentLog);
+            datasets.push({
+                label: STATUS_MAP[status]?.label || 'Unknown',
+                data: [{ x: [new Date(currentLog.timestamp), new Date(nextLog.timestamp)], y: 'Activity' }],
+                backgroundColor: STATUS_MAP[status]?.color || STATUS_MAP.unknown.color
+            });
+        }
+        
+        const lastLog = logs[logs.length - 1];
+        const lastStatus = getStatusFromLog(lastLog);
+        datasets.push({
+            label: STATUS_MAP[lastStatus]?.label || 'Unknown',
+            data: [{ x: [new Date(lastLog.timestamp), new Date()], y: 'Activity' }],
+            backgroundColor: STATUS_MAP[lastStatus]?.color || STATUS_MAP.unknown.color
+        });
+    }
+
+    const timeConfig = {
+        '1h': { unit: 'minute', min: new Date(new Date().getTime() - 60 * 60 * 1000) },
+        '24h': { unit: 'hour', min: new Date(new Date().getTime() - 24 * 60 * 60 * 1000) }
+    };
+
+    const config = {
+        type: 'bar',
+        data: { datasets },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: ${formatDuration(ctx.raw.x[1] - ctx.raw.x[0])}`,
+                        title: (ctx) => `${new Date(ctx[0].raw.x[0]).toLocaleString()} - ${new Date(ctx[0].raw.x[1]).toLocaleString()}`
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { unit: timeConfig[range].unit },
+                    min: timeConfig[range].min,
+                    max: new Date(),
+                    stacked: true,
+                    grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                    ticks: { color: 'white' }
+                },
+                y: {
+                    stacked: true,
+                    grid: { display: false },
+                    ticks: { color: 'white' }
+                }
+            }
+        }
+    };
+    
+    if (uptimeChart) uptimeChart.destroy();
+    uptimeChart = new Chart(chartCanvas, config);
+}
+
+// Data fetching
+async function fetchData(range) {
+    try {
+        const response = await fetch(`/api/logs?range=${range}`);
+        const data = await response.json();
+        createChart(data.logs, range);
+        updateStatus(data.live_status);
+    } catch (error) {
+        console.error('Failed to fetch data:', error);
+        showNotification('Failed to fetch data', 'error');
+    }
+}
+
+function updateStatus(liveStatus) {
+    const statusValue = document.getElementById('statusValue');
+    const lastUpdated = document.getElementById('lastUpdated');
+    
+    statusValue.textContent = liveStatus.status;
+    lastUpdated.textContent = new Date().toLocaleString();
+    
+    // Update status class
+    statusValue.className = 'font-semibold ';
+    if (liveStatus.status === 'running') {
+        statusValue.className += 'text-green-400';
+    } else if (liveStatus.status === 'stopped') {
+        statusValue.className += 'text-red-400';
+    } else if (['starting', 'stopping', 'restarting'].includes(liveStatus.status)) {
+        statusValue.className += 'text-yellow-400';
+    } else {
+        statusValue.className += 'text-gray-400';
+    }
+}
+
+function setTimeRange(range) {
+    currentRange = range;
+    document.getElementById('1h-btn').classList.toggle('active', range === '1h');
+    document.getElementById('24h-btn').classList.toggle('active', range === '24h');
+    fetchData(range);
+}
+
+// Studio control functions
+async function startStudio() {
+    const machineType = document.getElementById('machineTypeSelect').value;
+    
+    showModal("Starting Studio...", "Sending start command...", [], true);
+    
+    try {
+        const response = await fetch('/api/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ machine_type: machineType })
+        });
+        
+        const data = await response.json();
+        
+        if (data.start_id) {
+            progressInterval = setInterval(() => checkProgress(data.start_id), 3000);
+        } else {
+            const actions = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
+            showModal("❌ Error!", data.error || "An unknown error occurred.", actions);
+        }
+    } catch (error) {
+        const actions = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
+        showModal("❌ Error!", "Failed to start studio", actions);
+    }
+}
+
+async function stopStudio() {
+    const actions = [
+        { text: 'Cancel', class: 'bg-gray-600 hover:bg-gray-700 px-6 py-2 rounded-lg font-semibold mr-4', onclick: closeModal },
+        { text: 'Yes, Stop It', class: 'bg-red-600 hover:bg-red-700 px-6 py-2 rounded-lg font-semibold', onclick: async () => {
+            showModal("Stopping Studio...", "Sending stop command...", [], true);
+            
+            try {
+                const response = await fetch('/api/stop', { method: 'POST' });
+                const data = await response.json();
+                const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
+                
+                if(data.success) {
+                    showModal("✅ Command Sent", "Stop command sent successfully.", closeAction);
+                } else {
+                    showModal("❌ Error", `Failed to stop: ${data.error}`, closeAction);
+                }
+                
+                fetchData(currentRange);
+            } catch (error) {
+                const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
+                showModal("❌ Error", "Failed to stop studio", closeAction);
+            }
+        }}
+    ];
+    
+    showModal("Confirm Stop", "Are you sure you want to stop the studio?", actions);
+}
+
+async function restartStudio() {
+    const machineType = document.getElementById('machineTypeSelect').value;
+    
+    showModal("Restarting Studio...", "Sending restart command...", [], true);
+    
+    try {
+        const response = await fetch('/api/restart', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ machine_type: machineType })
+        });
+        
+        const data = await response.json();
+        const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
+        
+        if(data.success) {
+            showModal("✅ Command Sent", "Restart command sent successfully.", closeAction);
+        } else {
+            showModal("❌ Error", `Failed to restart: ${data.error}`, closeAction);
+        }
+        
+        fetchData(currentRange);
+    } catch (error) {
+        const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
+        showModal("❌ Error", "Failed to restart studio", closeAction);
+    }
+}
+
+async function checkProgress(startId) {
+    try {
+        const response = await fetch(`/api/start/progress/${startId}`);
+        const data = await response.json();
+        
+        if (data.status === 'starting') {
+            modalMessage.textContent = `Please wait... (${Math.round(data.elapsed_seconds)}s elapsed)`;
+        } else if (data.status === 'completed') {
+            clearInterval(progressInterval);
+            const actions = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
+            
+            if (data.success) {
+                showModal("✅ Success!", "Studio start process completed.", actions);
+            } else {
+                showModal("❌ Error!", `Failed to start: ${data.error}`, actions);
+            }
+            
+            fetchData(currentRange);
+        }
+    } catch (error) {
+        console.error('Error checking progress:', error);
+    }
+}
+
+// Event listeners
+document.getElementById('startBtn').addEventListener('click', startStudio);
+document.getElementById('stopBtn').addEventListener('click', stopStudio);
+document.getElementById('restartStudioBtn').addEventListener('click', restartStudio);
+document.getElementById('quickStartBtn').addEventListener('click', startStudio);
+document.getElementById('quickStopBtn').addEventListener('click', stopStudio);
+document.getElementById('restartBtn').addEventListener('click', restartStudio);
+
+// Initialize
+setTimeRange('1h');
+setInterval(() => fetchData(currentRange), 60000);
+
+// Load quick stats
+async function loadQuickStats() {
+    try {
+        // Load schedules count
+        const schedulesResponse = await fetch('/scheduler/list');
+        const schedulesData = await schedulesResponse.json();
+        const activeSchedules = schedulesData.schedules ? schedulesData.schedules.filter(s => s.enabled).length : 0;
+        document.getElementById('activeSchedules').textContent = activeSchedules;
+        
+        // Load executions count
+        const executionsResponse = await fetch('/files/execution-history?limit=10');
+        const executionsData = await executionsResponse.json();
+        const recentExecutions = executionsData.history ? executionsData.history.length : 0;
+        document.getElementById('recentExecutions').textContent = recentExecutions;
+    } catch (error) {
+        console.error('Failed to load quick stats:', error);
+    }
+}
+
+loadQuickStats();
+</script>
+
+<style>
+.time-range-btn.active {
+    background-color: #4f46e5;
+    color: white;
+}
+</style>
+{% endblock %}

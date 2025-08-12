@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+
+{% block title %}Logs - Lightning AI Studio{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+        <div>
+            <h1 class="text-3xl font-bold mb-2">
+                <i class="fas fa-list text-indigo-400 mr-3"></i>
+                System Logs
+            </h1>
+            <p class="text-gray-400">Monitor studio activity and system events</p>
+        </div>
+        
+        <div class="flex space-x-3 mt-4 md:mt-0">
+            <button onclick="refreshLogs()" class="btn-primary px-4 py-2 rounded-lg font-semibold">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+            <button onclick="exportLogs()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg font-semibold">
+                <i class="fas fa-download mr-2"></i>Export
+            </button>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h3 class="text-lg font-semibold mb-4">Filters</h3>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Event Type</label>
+                <select id="eventTypeFilter" onchange="applyFilters()" 
+                        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                    <option value="">All Types</option>
+                    <option value="event">Events</option>
+                    <option value="error">Errors</option>
+                    <option value="heartbeat">Heartbeat</option>
+                    <option value="health_check">Health Checks</option>
+                </select>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Time Range</label>
+                <select id="timeRangeFilter" onchange="applyFilters()" 
+                        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                    <option value="1">Last Hour</option>
+                    <option value="24" selected>Last 24 Hours</option>
+                    <option value="168">Last Week</option>
+                    <option value="720">Last Month</option>
+                </select>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Search</label>
+                <input type="text" id="searchFilter" placeholder="Search logs..." onkeyup="applyFilters()"
+                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Actions</label>
+                <button onclick="clearFilters()" 
+                        class="w-full bg-gray-600 hover:bg-gray-700 px-3 py-2 rounded-lg font-semibold">
+                    Clear Filters
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Table -->
+    <div class="card rounded-lg shadow-lg overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-700">
+            <h2 class="text-xl font-semibold">Log Entries</h2>
+        </div>
+        
+        <div class="overflow-x-auto">
+            <table class="min-w-full">
+                <thead class="bg-gray-700">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600" onclick="sortLogs('timestamp')">
+                            Timestamp <i class="fas fa-sort ml-1"></i>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600" onclick="sortLogs('type')">
+                            Type <i class="fas fa-sort ml-1"></i>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600" onclick="sortLogs('event_type')">
+                            Event <i class="fas fa-sort ml-1"></i>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                            Note
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                            Details
+                        </th>
+                    </tr>
+                </thead>
+                <tbody id="logsTableBody" class="divide-y divide-gray-700">
+                    <!-- Logs will be populated here -->
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Loading state -->
+        <div id="logsLoading" class="text-center py-8">
+            <i class="fas fa-spinner fa-spin text-2xl text-gray-400 mb-2"></i>
+            <p class="text-gray-400">Loading logs...</p>
+        </div>
+        
+        <!-- Empty state -->
+        <div id="logsEmpty" class="text-center py-8 hidden">
+            <i class="fas fa-inbox text-4xl text-gray-500 mb-4"></i>
+            <p class="text-gray-400 text-lg">No logs found</p>
+            <p class="text-gray-500">Try adjusting your filters</p>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    <div id="pagination" class="flex justify-center space-x-2">
+        <!-- Pagination will be added here if needed -->
+    </div>
+</div>
+
+<!-- Log Detail Modal -->
+<div id="logDetailModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50">
+    <div class="bg-gray-800 p-6 rounded-lg shadow-2xl max-w-2xl w-full mx-4 max-h-screen overflow-y-auto">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Log Details</h3>
+            <button onclick="closeLogDetailModal()" class="text-gray-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <div id="logDetailContent">
+            <!-- Log details will be populated here -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allLogs = [];
+let filteredLogs = [];
+let sortField = 'timestamp';
+let sortDirection = 'desc';
+
+// Load logs from server
+async function loadLogs() {
+    const timeRange = document.getElementById('timeRangeFilter').value;
+    
+    try {
+        document.getElementById('logsLoading').style.display = 'block';
+        document.getElementById('logsEmpty').classList.add('hidden');
+        
+        const response = await fetch(`/api/logs?range=${timeRange}h`);
+        const data = await response.json();
+        
+        if (data.logs) {
+            allLogs = data.logs;
+            applyFilters();
+        }
+        
+        document.getElementById('logsLoading').style.display = 'none';
+        
+    } catch (error) {
+        console.error('Error loading logs:', error);
+        showNotification('Failed to load logs', 'error');
+        document.getElementById('logsLoading').style.display = 'none';
+    }
+}
+
+// Apply filters and search
+function applyFilters() {
+    const eventType = document.getElementById('eventTypeFilter').value;
+    const searchTerm = document.getElementById('searchFilter').value.toLowerCase();
+    
+    filteredLogs = allLogs.filter(log => {
+        // Event type filter
+        if (eventType && log.type !== eventType) {
+            return false;
+        }
+        
+        // Search filter
+        if (searchTerm) {
+            const searchableText = `${log.event_type} ${log.note}`.toLowerCase();
+            if (!searchableText.includes(searchTerm)) {
+                return false;
+            }
+        }
+        
+        return true;
+    });
+    
+    sortLogs(sortField, sortDirection);
+}
+
+// Sort logs
+function sortLogs(field, direction = null) {
+    if (direction === null) {
+        // Toggle direction if same field
+        if (sortField === field) {
+            sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortDirection = 'desc';
+        }
+    } else {
+        sortDirection = direction;
+    }
+    
+    sortField = field;
+    
+    filteredLogs.sort((a, b) => {
+        let aVal = a[field];
+        let bVal = b[field];
+        
+        if (field === 'timestamp') {
+            aVal = new Date(aVal);
+            bVal = new Date(bVal);
+        }
+        
+        if (sortDirection === 'asc') {
+            return aVal > bVal ? 1 : -1;
+        } else {
+            return aVal < bVal ? 1 : -1;
+        }
+    });
+    
+    renderLogs();
+}
+
+// Render logs table
+function renderLogs() {
+    const tbody = document.getElementById('logsTableBody');
+    
+    if (filteredLogs.length === 0) {
+        tbody.innerHTML = '';
+        document.getElementById('logsEmpty').classList.remove('hidden');
+        return;
+    }
+    
+    document.getElementById('logsEmpty').classList.add('hidden');
+    
+    tbody.innerHTML = filteredLogs.map(log => {
+        const timestamp = new Date(log.timestamp).toLocaleString();
+        const eventTypeClass = getEventTypeClass(log.event_type, log.type);
+        
+        return `
+            <tr class="hover:bg-gray-700 cursor-pointer" onclick="showLogDetail('${log.id || Math.random()}', '${btoa(JSON.stringify(log))}')">
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                    ${timestamp}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                    <span class="px-2 py-1 text-xs font-semibold rounded-full ${getTypeClass(log.type)}">
+                        ${log.type}
+                    </span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold ${eventTypeClass}">
+                    ${log.event_type}
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-300 max-w-xs truncate">
+                    ${log.note || '--'}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                    ${log.metadata ? '<i class="fas fa-info-circle text-blue-400"></i>' : '--'}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// Get CSS class for event type
+function getEventTypeClass(eventType, type) {
+    if (type === 'error' || eventType.includes('error') || eventType.includes('crash')) {
+        return 'text-red-400';
+    } else if (eventType.includes('start')) {
+        return 'text-green-400';
+    } else if (eventType.includes('stop')) {
+        return 'text-yellow-400';
+    } else if (eventType.includes('running')) {
+        return 'text-blue-400';
+    } else {
+        return 'text-gray-400';
+    }
+}
+
+// Get CSS class for log type
+function getTypeClass(type) {
+    switch (type) {
+        case 'error':
+            return 'bg-red-800 text-red-200';
+        case 'event':
+            return 'bg-blue-800 text-blue-200';
+        case 'heartbeat':
+            return 'bg-green-800 text-green-200';
+        case 'health_check':
+            return 'bg-purple-800 text-purple-200';
+        default:
+            return 'bg-gray-800 text-gray-200';
+    }
+}
+
+// Show log detail modal
+function showLogDetail(logId, encodedLog) {
+    try {
+        const log = JSON.parse(atob(encodedLog));
+        
+        const content = document.getElementById('logDetailContent');
+        content.innerHTML = `
+            <div class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <h4 class="font-semibold text-gray-300 mb-2">Timestamp</h4>
+                        <p class="text-sm bg-gray-700 p-2 rounded">${new Date(log.timestamp).toLocaleString()}</p>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-gray-300 mb-2">Type</h4>
+                        <p class="text-sm bg-gray-700 p-2 rounded">
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full ${getTypeClass(log.type)}">
+                                ${log.type}
+                            </span>
+                        </p>
+                    </div>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold text-gray-300 mb-2">Event Type</h4>
+                    <p class="text-sm bg-gray-700 p-2 rounded ${getEventTypeClass(log.event_type, log.type)}">${log.event_type}</p>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold text-gray-300 mb-2">Note</h4>
+                    <p class="text-sm bg-gray-700 p-2 rounded">${log.note || 'No note'}</p>
+                </div>
+                
+                ${log.metadata ? `
+                    <div>
+                        <h4 class="font-semibold text-gray-300 mb-2">Metadata</h4>
+                        <pre class="text-sm bg-gray-900 p-3 rounded overflow-x-auto text-green-400">${JSON.stringify(log.metadata, null, 2)}</pre>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+        
+        document.getElementById('logDetailModal').classList.remove('hidden');
+    } catch (error) {
+        console.error('Error showing log detail:', error);
+        showNotification('Failed to show log details', 'error');
+    }
+}
+
+// Close log detail modal
+function closeLogDetailModal() {
+    document.getElementById('logDetailModal').classList.add('hidden');
+}
+
+// Clear all filters
+function clearFilters() {
+    document.getElementById('eventTypeFilter').value = '';
+    document.getElementById('searchFilter').value = '';
+    applyFilters();
+}
+
+// Refresh logs
+function refreshLogs() {
+    loadLogs();
+    showNotification('Logs refreshed', 'success');
+}
+
+// Export logs
+function exportLogs() {
+    const dataStr = JSON.stringify(filteredLogs, null, 2);
+    const dataBlob = new Blob([dataStr], {type: 'application/json'});
+    
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(dataBlob);
+    link.download = `lightning-studio-logs-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    
+    showNotification('Logs exported successfully', 'success');
+}
+
+// Initialize
+loadLogs();
+
+// Auto-refresh every 30 seconds
+setInterval(loadLogs, 30000);
+</script>
+{% endblock %}
