@@ -312,8 +312,11 @@ SCHEDULER_HTML = """
                 </div>
                 
                 <div class="form-group">
-                    <label>Scheduled Time</label>
+                    <label>Scheduled Time (Server Time)</label>
                     <input type="datetime-local" name="schedule_time" required>
+                    <small style="color: #999; font-size: 12px;">
+                        Server time: <span id="serverTime">Loading...</span>
+                    </small>
                 </div>
                 
                 <div style="text-align: right; margin-top: 20px;">
@@ -438,6 +441,19 @@ SCHEDULER_HTML = """
         
         showServerTime();
         setInterval(showServerTime, 60000); // Update every minute
+        
+        // Update server time display in modal
+        function updateServerTimeDisplay() {
+            const now = new Date();
+            const serverTimeEl = document.getElementById('serverTime');
+            if (serverTimeEl) {
+                serverTimeEl.textContent = now.toLocaleString();
+            }
+        }
+        
+        // Update server time every second when modal is open
+        setInterval(updateServerTimeDisplay, 1000);
+        updateServerTimeDisplay();
     </script>
 </body>
 </html>
@@ -547,37 +563,70 @@ class SimpleScheduler:
             schedule_name = schedule['name']
             
             log_event("schedule_execute", f"Executing schedule '{schedule_name}' - {action}", "event", schedule)
+            debug_print(f"SCHEDULER: About to execute {action} for schedule '{schedule_name}'")
             
             if action == "start":
                 if studio:
-                    studio.start(Machine.CPU)
-                    success = True
-                    message = "Studio start initiated"
+                    debug_print(f"SCHEDULER: Studio object exists, calling studio.start(Machine.CPU)")
+                    try:
+                        studio.start(Machine.CPU)
+                        debug_print(f"SCHEDULER: studio.start() call completed successfully")
+                        success = True
+                        message = "Studio start initiated by scheduler"
+                        log_event("schedule_start_success", f"Scheduled start completed for '{schedule_name}'", "event")
+                    except Exception as start_error:
+                        debug_print(f"SCHEDULER: Error during studio.start(): {start_error}")
+                        log_event("schedule_start_error", f"Scheduled start failed for '{schedule_name}': {start_error}", "error")
+                        success = False
+                        message = f"Studio start failed: {start_error}"
                 else:
+                    debug_print(f"SCHEDULER: Studio object is None!")
                     success = False
                     message = "Studio not initialized"
             
             elif action == "stop":
                 if studio:
-                    studio.stop()
-                    success = True
-                    message = "Studio stop initiated"
+                    debug_print(f"SCHEDULER: Studio object exists, calling studio.stop()")
+                    try:
+                        studio.stop()
+                        debug_print(f"SCHEDULER: studio.stop() call completed successfully")
+                        success = True
+                        message = "Studio stop initiated by scheduler"
+                        log_event("schedule_stop_success", f"Scheduled stop completed for '{schedule_name}'", "event")
+                    except Exception as stop_error:
+                        debug_print(f"SCHEDULER: Error during studio.stop(): {stop_error}")
+                        log_event("schedule_stop_error", f"Scheduled stop failed for '{schedule_name}': {stop_error}", "error")
+                        success = False
+                        message = f"Studio stop failed: {stop_error}"
                 else:
+                    debug_print(f"SCHEDULER: Studio object is None!")
                     success = False
                     message = "Studio not initialized"
             
             elif action == "restart":
                 if studio:
-                    studio.stop()
-                    time.sleep(5)
-                    studio.start(Machine.CPU)
-                    success = True
-                    message = "Studio restart initiated"
+                    debug_print(f"SCHEDULER: Studio object exists, calling studio.stop() then studio.start()")
+                    try:
+                        studio.stop()
+                        debug_print(f"SCHEDULER: studio.stop() completed, waiting 5 seconds...")
+                        time.sleep(5)
+                        studio.start(Machine.CPU)
+                        debug_print(f"SCHEDULER: studio.start() completed successfully")
+                        success = True
+                        message = "Studio restart initiated by scheduler"
+                        log_event("schedule_restart_success", f"Scheduled restart completed for '{schedule_name}'", "event")
+                    except Exception as restart_error:
+                        debug_print(f"SCHEDULER: Error during studio restart: {restart_error}")
+                        log_event("schedule_restart_error", f"Scheduled restart failed for '{schedule_name}': {restart_error}", "error")
+                        success = False
+                        message = f"Studio restart failed: {restart_error}"
                 else:
+                    debug_print(f"SCHEDULER: Studio object is None!")
                     success = False
                     message = "Studio not initialized"
             
             else:
+                debug_print(f"SCHEDULER: Unknown action: {action}")
                 success = False
                 message = f"Unknown action: {action}"
             
@@ -610,9 +659,15 @@ class SimpleScheduler:
     def check_and_execute_schedules(self):
         """Check for schedules that need to be executed"""
         current_time = datetime.now()
+        debug_print(f"SCHEDULER: Checking schedules at {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        debug_print(f"SCHEDULER: Found {len(self.schedules)} total schedules")
+        
+        enabled_schedules = [s for s in self.schedules if s.get('enabled', True)]
+        debug_print(f"SCHEDULER: Found {len(enabled_schedules)} enabled schedules")
         
         for schedule in self.schedules:
             if not schedule.get('enabled', True):
+                debug_print(f"SCHEDULER: Skipping disabled schedule '{schedule['name']}'")
                 continue
                 
             try:
@@ -625,12 +680,20 @@ class SimpleScheduler:
                 # Check if it's time to execute (within 1 minute window)
                 time_diff = (current_time - schedule_dt).total_seconds()
                 
+                debug_print(f"SCHEDULER: Schedule '{schedule['name']}' - Current: {current_time.strftime('%H:%M:%S')}, Scheduled: {schedule_dt.strftime('%H:%M:%S')}, Diff: {time_diff:.1f}s")
+                
                 if 0 <= time_diff <= 60:  # Execute if within 1 minute past scheduled time
-                    debug_print(f"Executing scheduled task: {schedule['name']}")
-                    self.execute_schedule(schedule)
+                    debug_print(f"SCHEDULER: *** EXECUTING scheduled task: {schedule['name']} ***")
+                    success, message = self.execute_schedule(schedule)
+                    debug_print(f"SCHEDULER: Execution result - Success: {success}, Message: {message}")
+                elif time_diff > 60:
+                    debug_print(f"SCHEDULER: Schedule '{schedule['name']}' is overdue by {time_diff:.1f} seconds")
+                else:
+                    debug_print(f"SCHEDULER: Schedule '{schedule['name']}' is {abs(time_diff):.1f} seconds in the future")
                     
             except Exception as e:
-                debug_print(f"Error checking schedule {schedule['id']}: {e}")
+                debug_print(f"SCHEDULER: Error checking schedule {schedule['id']}: {e}")
+                log_event("scheduler_check_error", f"Error checking schedule {schedule['id']}: {e}", "error")
                 continue
 
 # Initialize scheduler
@@ -764,10 +827,18 @@ def monitor_loop():
         
         time.sleep(30)  # Check more frequently for better schedule precision
 
-if __name__ == "__main__":
-    log_event("startup", "Enhanced Lightning AI Dashboard starting")
+# Start monitor thread immediately when app is created (not just in __main__)
+def start_monitor_thread():
+    debug_print("Starting monitor thread...")
     monitor_thread = threading.Thread(target=monitor_loop)
     monitor_thread.daemon = True
     monitor_thread.start()
+    debug_print("Monitor thread started successfully")
+
+# Start the monitor thread now
+start_monitor_thread()
+
+if __name__ == "__main__":
+    log_event("startup", "Enhanced Lightning AI Dashboard starting")
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)
