@@ -150,13 +150,22 @@
                     Enhanced Lightning AI Studio Dashboard
                 </p>
                 <p class="text-gray-400 text-sm">
-                    Last updated: <span id="last-updated">{{ moment().format('YYYY-MM-DD HH:mm:ss') }}</span>
+                    Last updated: <span id="last-updated">Loading...</span>
                 </p>
             </div>
         </div>
     </footer>
 
     <!-- Global JavaScript -->
+    <script>
+        // Update timestamp
+        document.addEventListener('DOMContentLoaded', function() {
+            const lastUpdated = document.getElementById('last-updated');
+            if (lastUpdated) {
+                lastUpdated.textContent = new Date().toLocaleString();
+            }
+        });
+    </script>
     <script>
         // Update status indicator
         async function updateStatusIndicator() {

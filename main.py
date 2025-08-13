@@ -26,23 +26,7 @@ except Exception as e:
     print(f"Error creating dashboard app: {e}")
     import traceback
     traceback.print_exc()
-    
-    # Fallback to a simple Flask app
-    from flask import Flask
-    app = Flask(__name__)
-    app.secret_key = os.getenv('SECRET_KEY', 'fallback-secret-key')
-    
-    @app.route('/')
-    def fallback():
-        return f"""
-        <h1>Lightning AI Dashboard - Startup Error</h1>
-        <p>Error: {str(e)}</p>
-        <p>Please check the logs for more details.</p>
-        <p>Working directory: {os.getcwd()}</p>
-        <p>Python version: {sys.version}</p>
-        """
-    
-    print("Fallback Flask app created")
+    raise e  # Re-raise the exception so we can see what's wrong
 
 if __name__ == "__main__":
     try:
