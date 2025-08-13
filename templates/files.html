@@ -37,9 +37,6 @@
                     <button onclick="refreshFiles()" class="text-gray-400 hover:text-white text-sm">
                         <i class="fas fa-sync-alt"></i>
                     </button>
-                    <button onclick="uploadToRemote()" class="text-purple-400 hover:text-purple-300 text-sm" title="Upload to Remote">
-                        <i class="fas fa-cloud-upload-alt"></i>
-                    </button>
                 </div>
             </div>
             
@@ -315,6 +312,9 @@ async function loadFiles() {
                         <div class="flex space-x-1">
                             <button onclick="executeFileLocal('${file.path}')" class="text-green-400 hover:text-green-300 text-sm" title="Execute Locally">
                                 <i class="fas fa-play"></i>
+                            </button>
+                            <button onclick="uploadFileToRemote('${file.path}')" class="text-purple-400 hover:text-purple-300 text-sm" title="Upload to Remote">
+                                <i class="fas fa-cloud-upload-alt"></i>
                             </button>
                             <button onclick="downloadFile('${file.path}', 'local')" class="text-blue-400 hover:text-blue-300 text-sm" title="Download">
                                 <i class="fas fa-download"></i>
@@ -685,27 +685,31 @@ async function uploadToRemote() {
     const selectedFile = prompt('Enter local file path to upload to remote:');
     if (!selectedFile) return;
     
+    await uploadFileToRemote(selectedFile);
+}
+
+async function uploadFileToRemote(filePath) {
     try {
         const response = await fetch('/files/upload-to-remote', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-                local_file_path: selectedFile,
-                remote_file_path: null // Will use default /tmp location
+                local_file_path: filePath,
+                remote_file_path: null // Will use default location
             })
         });
         
         const data = await response.json();
         
         if (data.success) {
-            showNotification('File uploaded to remote successfully', 'success');
+            showNotification(`File '${filePath}' uploaded to remote successfully`, 'success');
             refreshRemoteFiles();
         } else {
-            showNotification(data.error, 'error');
+            showNotification(`Failed to upload '${filePath}': ${data.error}`, 'error');
         }
     } catch (error) {
         console.error('Error uploading to remote:', error);
-        showNotification('Failed to upload file to remote', 'error');
+        showNotification(`Failed to upload '${filePath}' to remote`, 'error');
     }
 }
 

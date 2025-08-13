@@ -162,7 +162,7 @@ class FileService:
             
             # Step 1: Upload file to remote studio
             try:
-                self.studio.upload(file_path, remote_file_path)
+                self.studio.upload_file(file_path, remote_file_path)
                 debug_print(f"File uploaded to remote studio: {file_path} -> {remote_file_path}")
             except Exception as e:
                 error_msg = f"Failed to upload file to remote studio: {str(e)}"
@@ -342,7 +342,7 @@ class FileService:
                 remote_file_path = f"/tmp/{file_name}"
             
             # Upload file
-            self.studio.upload(local_file_path, remote_file_path)
+            self.studio.upload_file(local_file_path, remote_file_path)
             
             log_event("file_upload_success", f"File uploaded: {local_file_path} -> {remote_file_path}", "event")
             
@@ -383,7 +383,7 @@ class FileService:
                 os.makedirs("downloads", exist_ok=True)
             
             # Download file
-            self.studio.download(remote_file_path, local_file_path)
+            self.studio.download_file(remote_file_path, local_file_path)
             
             log_event("file_download_success", f"File downloaded: {remote_file_path} -> {local_file_path}", "event")
             
