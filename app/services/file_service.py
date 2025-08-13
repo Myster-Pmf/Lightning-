@@ -101,8 +101,10 @@ class FileService:
     def save_file(self, file_path, content):
         """Save file content"""
         try:
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            # Ensure directory exists (only if file_path contains a directory)
+            dir_path = os.path.dirname(file_path)
+            if dir_path and dir_path != '.':
+                os.makedirs(dir_path, exist_ok=True)
             
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
@@ -140,7 +142,9 @@ class FileService:
             # Check studio status
             try:
                 status = str(self.studio.status)
-                if status.lower() not in ['running', 'started']:
+                # Handle both enum formats: Status.Running and 'running'
+                status_lower = status.lower().replace('status.', '')
+                if status_lower not in ['running', 'started']:
                     return {"success": False, "error": f"Studio is not running (status: {status})", "execution_id": execution_id}
             except Exception as e:
                 return {"success": False, "error": f"Cannot check studio status: {str(e)}", "execution_id": execution_id}
@@ -313,7 +317,9 @@ class FileService:
             # Check studio status
             try:
                 status = str(self.studio.status)
-                if status.lower() not in ['running', 'started']:
+                # Handle both enum formats: Status.Running and 'running'
+                status_lower = status.lower().replace('status.', '')
+                if status_lower not in ['running', 'started']:
                     return {"success": False, "error": f"Studio is not running (status: {status})"}
             except Exception as e:
                 return {"success": False, "error": f"Cannot check studio status: {str(e)}"}
@@ -352,7 +358,9 @@ class FileService:
             # Check studio status
             try:
                 status = str(self.studio.status)
-                if status.lower() not in ['running', 'started']:
+                # Handle both enum formats: Status.Running and 'running'
+                status_lower = status.lower().replace('status.', '')
+                if status_lower not in ['running', 'started']:
                     return {"success": False, "error": f"Studio is not running (status: {status})"}
             except Exception as e:
                 return {"success": False, "error": f"Cannot check studio status: {str(e)}"}
@@ -391,7 +399,9 @@ class FileService:
             # Check studio status
             try:
                 status = str(self.studio.status)
-                if status.lower() not in ['running', 'started']:
+                # Handle both enum formats: Status.Running and 'running'
+                status_lower = status.lower().replace('status.', '')
+                if status_lower not in ['running', 'started']:
                     return {"success": False, "error": f"Studio is not running (status: {status})"}
             except Exception as e:
                 return {"success": False, "error": f"Cannot check studio status: {str(e)}"}
