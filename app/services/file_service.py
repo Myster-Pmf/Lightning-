@@ -465,3 +465,229 @@ class FileService:
                 "error": error_msg,
                 "command": command
             }
+    
+    def execute_file_local(self, file_path):
+        """Execute a file locally on the host machine"""
+        import subprocess
+        execution_id = f"local_exec_{int(time.time())}"
+        
+        try:
+            if not os.path.exists(file_path):
+                return {"success": False, "error": "File not found", "execution_id": execution_id}
+            
+            # Determine interpreter based on file extension
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext == '.py':
+                command = ['python', file_path]
+            elif ext == '.sh':
+                command = ['bash', file_path]
+            elif ext == '.js':
+                command = ['node', file_path]
+            else:
+                command = ['python', file_path]  # Default to python
+            
+            start_time = time.time()
+            
+            # Execute locally
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            
+            end_time = time.time()
+            execution_time = end_time - start_time
+            
+            success = result.returncode == 0
+            
+            # Record execution
+            execution_record = {
+                "id": execution_id,
+                "file_path": file_path,
+                "command": ' '.join(command),
+                "timestamp": datetime.now().isoformat(),
+                "execution_time": execution_time,
+                "return_code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "success": success,
+                "execution_location": "local_host"
+            }
+            
+            self.executions.append(execution_record)
+            self._save_executions()
+            
+            return {
+                "success": success,
+                "execution_id": execution_id,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "return_code": result.returncode,
+                "execution_time": execution_time,
+                "execution_location": "local_host"
+            }
+            
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "execution_id": execution_id,
+                "error": "Execution timed out",
+                "execution_time": 300,
+                "execution_location": "local_host"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "execution_id": execution_id,
+                "error": str(e),
+                "execution_time": 0,
+                "execution_location": "local_host"
+            }
+    
+    def execute_file_remote(self, file_path):
+        """Execute a file that already exists on the remote Lightning AI Studio"""
+        try:
+            if not self.studio:
+                return {"success": False, "error": "Studio not initialized"}
+            
+            # Check studio status
+            try:
+                status = str(self.studio.status)
+                status_lower = status.lower().replace('status.', '')
+                if status_lower not in ['running', 'started']:
+                    return {"success": False, "error": f"Studio is not running (status: {status})"}
+            except Exception as e:
+                return {"success": False, "error": f"Cannot check studio status: {str(e)}"}
+            
+            # Build command for remote execution
+            file_name = os.path.basename(file_path)
+            ext = os.path.splitext(file_name)[1].lower()
+            
+            if ext == '.py':
+                command = f"python {file_path}"
+            elif ext == '.sh':
+                command = f"bash {file_path}"
+            elif ext == '.js':
+                command = f"node {file_path}"
+            else:
+                command = f"python {file_path}"  # Default to python
+            
+            start_time = time.time()
+            
+            # Execute on remote studio
+            result = self.studio.run(command)
+            
+            end_time = time.time()
+            execution_time = end_time - start_time
+            
+            # Parse result
+            if hasattr(result, 'returncode'):
+                return_code = result.returncode
+                stdout = getattr(result, 'stdout', str(result))
+                stderr = getattr(result, 'stderr', '')
+            else:
+                return_code = 0
+                stdout = str(result) if result is not None else ""
+                stderr = ''
+            
+            success = return_code == 0
+            
+            return {
+                "success": success,
+                "stdout": stdout,
+                "stderr": stderr,
+                "return_code": return_code,
+                "execution_time": execution_time,
+                "execution_location": "remote_studio"
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "execution_location": "remote_studio"
+            }
+    
+    def list_remote_files(self, path="/tmp"):
+        """List files on the remote Lightning AI Studio"""
+        try:
+            if not self.studio:
+                return {"success": False, "error": "Studio not initialized"}
+            
+            # Check studio status
+            try:
+                status = str(self.studio.status)
+                status_lower = status.lower().replace('status.', '')
+                if status_lower not in ['running', 'started']:
+                    return {"success": False, "error": f"Studio is not running (status: {status})"}
+            except Exception as e:
+                return {"success": False, "error": f"Cannot check studio status: {str(e)}"}
+            
+            # Run ls command to list files
+            command = f"ls -la {path}"
+            result = self.studio.run(command)
+            
+            if hasattr(result, 'returncode') and result.returncode != 0:
+                return {"success": False, "error": "Failed to list remote files"}
+            
+            output = str(result) if result else ""
+            files = []
+            
+            # Parse ls output
+            lines = output.strip().split('\n')
+            for line in lines[1:]:  # Skip the first line (total)
+                if not line.strip():
+                    continue
+                    
+                parts = line.split()
+                if len(parts) >= 9:
+                    permissions = parts[0]
+                    size = parts[4] if parts[4].isdigit() else 0
+                    name = ' '.join(parts[8:])
+                    
+                    if name in ['.', '..']:
+                        continue
+                    
+                    file_type = 'directory' if permissions.startswith('d') else 'file'
+                    file_path = f"{path.rstrip('/')}/{name}"
+                    
+                    files.append({
+                        "name": name,
+                        "path": file_path,
+                        "size": int(size) if str(size).isdigit() else 0,
+                        "type": file_type,
+                        "permissions": permissions
+                    })
+            
+            return {"success": True, "files": files, "path": path}
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def delete_remote_file(self, file_path):
+        """Delete a file on the remote Lightning AI Studio"""
+        try:
+            if not self.studio:
+                return {"success": False, "error": "Studio not initialized"}
+            
+            # Check studio status
+            try:
+                status = str(self.studio.status)
+                status_lower = status.lower().replace('status.', '')
+                if status_lower not in ['running', 'started']:
+                    return {"success": False, "error": f"Studio is not running (status: {status})"}
+            except Exception as e:
+                return {"success": False, "error": f"Cannot check studio status: {str(e)}"}
+            
+            # Run rm command
+            command = f"rm -f {file_path}"
+            result = self.studio.run(command)
+            
+            if hasattr(result, 'returncode') and result.returncode != 0:
+                return {"success": False, "error": "Failed to delete remote file"}
+            
+            return {"success": True, "message": f"File {file_path} deleted successfully"}
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}

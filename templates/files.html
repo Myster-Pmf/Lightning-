@@ -25,18 +25,53 @@
     </div>
 
     <!-- File Browser and Editor -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- File Browser -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Workspace Files (Local) -->
         <div class="card rounded-lg shadow-lg p-6">
             <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xl font-semibold">Workspace Files</h2>
-                <button onclick="refreshFiles()" class="text-gray-400 hover:text-white">
-                    <i class="fas fa-sync-alt"></i>
-                </button>
+                <h2 class="text-lg font-semibold">
+                    <i class="fas fa-laptop text-blue-400 mr-2"></i>
+                    Workspace Files (Local)
+                </h2>
+                <div class="flex space-x-1">
+                    <button onclick="refreshFiles()" class="text-gray-400 hover:text-white text-sm">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button onclick="uploadToRemote()" class="text-purple-400 hover:text-purple-300 text-sm" title="Upload to Remote">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                    </button>
+                </div>
             </div>
             
-            <div id="filesList" class="space-y-2 max-h-96 overflow-y-auto">
+            <div id="filesList" class="space-y-2 max-h-80 overflow-y-auto">
                 <!-- Files will be loaded here -->
+            </div>
+        </div>
+
+        <!-- Remote Files -->
+        <div class="card rounded-lg shadow-lg p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold">
+                    <i class="fas fa-cloud text-green-400 mr-2"></i>
+                    Remote Files (Studio)
+                </h2>
+                <div class="flex space-x-1">
+                    <button onclick="refreshRemoteFiles()" class="text-gray-400 hover:text-white text-sm">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button onclick="changeRemoteDirectory()" class="text-yellow-400 hover:text-yellow-300 text-sm" title="Change Directory">
+                        <i class="fas fa-folder-open"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="mb-2">
+                <input type="text" id="remoteCurrentPath" value="/tmp" readonly
+                       class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-gray-300">
+            </div>
+            
+            <div id="remoteFilesList" class="space-y-2 max-h-80 overflow-y-auto">
+                <div class="text-gray-400 text-center py-4 text-sm">Click refresh to load remote files</div>
             </div>
         </div>
         
@@ -277,11 +312,14 @@ async function loadFiles() {
                         </div>
                     </div>
                     ${!isDirectory ? `
-                        <div class="flex space-x-2">
-                            <button onclick="executeFileQuick('${file.path}')" class="text-green-400 hover:text-green-300">
+                        <div class="flex space-x-1">
+                            <button onclick="executeFileLocal('${file.path}')" class="text-green-400 hover:text-green-300 text-sm" title="Execute Locally">
                                 <i class="fas fa-play"></i>
                             </button>
-                            <button onclick="deleteFile('${file.path}')" class="text-red-400 hover:text-red-300">
+                            <button onclick="downloadFile('${file.path}', 'local')" class="text-blue-400 hover:text-blue-300 text-sm" title="Download">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button onclick="deleteFile('${file.path}')" class="text-red-400 hover:text-red-300 text-sm" title="Delete">
                                 <i class="fas fa-trash"></i>
                             </button>
                         </div>
@@ -433,38 +471,62 @@ async function executeFile() {
     }
 }
 
-async function executeFileQuick(filePath) {
+// Local file execution (runs on host machine)
+async function executeFileLocal(filePath) {
     try {
-        const response = await fetch('/files/execute', {
+        // For local execution, we'll use a simple subprocess call
+        const response = await fetch('/files/execute-local', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ file_path: filePath })
         });
         
         const data = await response.json();
-        
-        const resultsDiv = document.getElementById('executionResults');
-        resultsDiv.innerHTML = `
-            <div class="mb-2 text-gray-400">Quick execution of ${filePath}</div>
-            <div class="mb-2">
-                <span class="px-2 py-1 text-xs font-semibold rounded ${data.success ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'}">
-                    ${data.success ? 'SUCCESS' : 'FAILED'}
-                </span>
-                <span class="text-gray-400 ml-2">Duration: ${data.execution_time?.toFixed(2)}s</span>
-            </div>
-            ${data.stdout ? `<div class="mb-2"><strong>Output:</strong><pre class="text-green-400 whitespace-pre-wrap">${data.stdout}</pre></div>` : ''}
-            ${data.stderr ? `<div class="mb-2"><strong>Error:</strong><pre class="text-red-400 whitespace-pre-wrap">${data.stderr}</pre></div>` : ''}
-        `;
-        
-        if (data.success) {
-            showNotification('File executed successfully', 'success');
-        } else {
-            showNotification('File execution failed', 'error');
-        }
+        displayExecutionResult(filePath, data, 'Local');
         
     } catch (error) {
-        console.error('Error executing file:', error);
-        showNotification('Failed to execute file', 'error');
+        console.error('Error executing file locally:', error);
+        showNotification('Failed to execute file locally', 'error');
+    }
+}
+
+// Remote file execution (runs on Lightning AI Studio)
+async function executeFileRemote(filePath) {
+    try {
+        const response = await fetch('/files/execute-remote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_path: filePath })
+        });
+        
+        const data = await response.json();
+        displayExecutionResult(filePath, data, 'Remote');
+        
+    } catch (error) {
+        console.error('Error executing file remotely:', error);
+        showNotification('Failed to execute file remotely', 'error');
+    }
+}
+
+function displayExecutionResult(filePath, data, location) {
+    const resultsDiv = document.getElementById('executionResults');
+    resultsDiv.innerHTML = `
+        <div class="mb-2 text-gray-400">${location} execution of ${filePath}</div>
+        <div class="mb-2">
+            <span class="px-2 py-1 text-xs font-semibold rounded ${data.success ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'}">
+                ${data.success ? 'SUCCESS' : 'FAILED'}
+            </span>
+            <span class="text-gray-400 ml-2">Duration: ${data.execution_time?.toFixed(2) || 'N/A'}s</span>
+            <span class="text-gray-400 ml-2">Location: ${location}</span>
+        </div>
+        ${data.stdout ? `<div class="mb-2"><strong>Output:</strong><pre class="text-green-400 whitespace-pre-wrap">${data.stdout}</pre></div>` : ''}
+        ${data.stderr ? `<div class="mb-2"><strong>Error:</strong><pre class="text-red-400 whitespace-pre-wrap">${data.stderr}</pre></div>` : ''}
+    `;
+    
+    if (data.success) {
+        showNotification(`File executed successfully on ${location.toLowerCase()}`, 'success');
+    } else {
+        showNotification(`File execution failed on ${location.toLowerCase()}`, 'error');
     }
 }
 
@@ -526,6 +588,169 @@ function closeUploadModal() {
 
 function refreshFiles() {
     loadFiles();
+}
+
+// Remote file management functions
+async function loadRemoteFiles() {
+    try {
+        const currentPath = document.getElementById('remoteCurrentPath').value;
+        const response = await fetch('/files/list-remote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: currentPath })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const remoteFilesList = document.getElementById('remoteFilesList');
+            remoteFilesList.innerHTML = '';
+            
+            if (data.files.length === 0) {
+                remoteFilesList.innerHTML = '<div class="text-gray-400 text-center py-4 text-sm">No files found</div>';
+                return;
+            }
+            
+            data.files.forEach(file => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'flex items-center justify-between p-2 bg-gray-700 rounded hover:bg-gray-600';
+                
+                const isDirectory = file.type === 'directory';
+                const icon = isDirectory ? 'folder' : getFileIcon(file.name);
+                
+                fileItem.innerHTML = `
+                    <div class="flex items-center space-x-2 flex-1 min-w-0" ${isDirectory ? `onclick="changeRemoteDirectory('${file.path}')"` : ''}>
+                        <i class="fas fa-${icon} ${isDirectory ? 'text-yellow-400' : 'text-blue-400'} text-sm"></i>
+                        <div class="truncate">
+                            <div class="font-medium text-sm">${file.name}</div>
+                            ${!isDirectory && file.size ? `<div class="text-xs text-gray-400">${formatFileSize(file.size)}</div>` : ''}
+                        </div>
+                    </div>
+                    ${!isDirectory ? `
+                        <div class="flex space-x-1 ml-2">
+                            <button onclick="executeFileRemote('${file.path}')" class="text-green-400 hover:text-green-300 text-sm" title="Execute on Remote">
+                                <i class="fas fa-play"></i>
+                            </button>
+                            <button onclick="downloadFile('${file.path}', 'remote')" class="text-blue-400 hover:text-blue-300 text-sm" title="Download to Local">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button onclick="deleteRemoteFile('${file.path}')" class="text-red-400 hover:text-red-300 text-sm" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    ` : ''}
+                `;
+                
+                remoteFilesList.appendChild(fileItem);
+            });
+        } else {
+            const remoteFilesList = document.getElementById('remoteFilesList');
+            remoteFilesList.innerHTML = `<div class="text-red-400 text-center py-4 text-sm">Error: ${data.error}</div>`;
+        }
+    } catch (error) {
+        console.error('Error loading remote files:', error);
+        const remoteFilesList = document.getElementById('remoteFilesList');
+        remoteFilesList.innerHTML = '<div class="text-red-400 text-center py-4 text-sm">Failed to load remote files</div>';
+    }
+}
+
+function refreshRemoteFiles() {
+    loadRemoteFiles();
+}
+
+function changeRemoteDirectory(newPath) {
+    if (newPath) {
+        document.getElementById('remoteCurrentPath').value = newPath;
+    } else {
+        const newPath = prompt('Enter remote directory path:', document.getElementById('remoteCurrentPath').value);
+        if (newPath) {
+            document.getElementById('remoteCurrentPath').value = newPath;
+        }
+    }
+    loadRemoteFiles();
+}
+
+async function uploadToRemote() {
+    const selectedFile = prompt('Enter local file path to upload to remote:');
+    if (!selectedFile) return;
+    
+    try {
+        const response = await fetch('/files/upload-to-remote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                local_file_path: selectedFile,
+                remote_file_path: null // Will use default /tmp location
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('File uploaded to remote successfully', 'success');
+            refreshRemoteFiles();
+        } else {
+            showNotification(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error uploading to remote:', error);
+        showNotification('Failed to upload file to remote', 'error');
+    }
+}
+
+async function downloadFile(filePath, location) {
+    try {
+        if (location === 'local') {
+            // Download local file (simple file download)
+            window.open(`/files/download-local/${encodeURIComponent(filePath)}`, '_blank');
+        } else {
+            // Download from remote
+            const response = await fetch('/files/download-from-remote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    remote_file_path: filePath,
+                    local_file_path: null // Will use default downloads location
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                showNotification('File downloaded from remote successfully', 'success');
+                refreshFiles(); // Refresh local files to show downloaded file
+            } else {
+                showNotification(data.error, 'error');
+            }
+        }
+    } catch (error) {
+        console.error('Error downloading file:', error);
+        showNotification('Failed to download file', 'error');
+    }
+}
+
+async function deleteRemoteFile(filePath) {
+    if (!confirm(`Are you sure you want to delete ${filePath} from remote?`)) return;
+    
+    try {
+        const response = await fetch('/files/delete-remote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_path: filePath })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('Remote file deleted successfully', 'success');
+            refreshRemoteFiles();
+        } else {
+            showNotification(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error deleting remote file:', error);
+        showNotification('Failed to delete remote file', 'error');
+    }
 }
 
 // Event listeners
