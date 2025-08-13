@@ -57,31 +57,33 @@ def start_studio():
     
     start_id = f"start_{int(time.time())}"
     
-    def start_async():
-        lightning_service = current_app.config['LIGHTNING_SERVICE']
-        
-        try:
-            success, message = lightning_service.start_studio(machine_type)
-            current_app.config['ASYNC_TASKS'][start_id] = {
-                "status": "completed",
-                "success": success,
-                "message": message
-            }
-        except Exception as e:
-            current_app.config['ASYNC_TASKS'][start_id] = {
-                "status": "completed",
-                "success": False,
-                "error": str(e)
-            }
-    
     # Store initial task status
     current_app.config['ASYNC_TASKS'][start_id] = {
         "status": "starting",
         "start_time": datetime.now().isoformat()
     }
     
-    # Start async task
-    thread = threading.Thread(target=start_async)
+    # Start async task with app context
+    app = current_app._get_current_object()
+    def start_async_with_context():
+        with app.app_context():
+            lightning_service = current_app.config['LIGHTNING_SERVICE']
+            
+            try:
+                success, message = lightning_service.start_studio(machine_type)
+                current_app.config['ASYNC_TASKS'][start_id] = {
+                    "status": "completed",
+                    "success": success,
+                    "message": message
+                }
+            except Exception as e:
+                current_app.config['ASYNC_TASKS'][start_id] = {
+                    "status": "completed",
+                    "success": False,
+                    "error": str(e)
+                }
+    
+    thread = threading.Thread(target=start_async_with_context)
     thread.daemon = True
     thread.start()
     
