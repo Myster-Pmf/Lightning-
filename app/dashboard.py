@@ -19,7 +19,19 @@ from .utils.logging_utils import log_event
 
 def create_dashboard_app():
     """Create the enhanced dashboard application"""
-    app = Flask(__name__)
+    # Get the correct template and static directories
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    template_dir = os.path.join(os.path.dirname(current_dir), 'templates')
+    static_dir = os.path.join(os.path.dirname(current_dir), 'static')
+    
+    print(f"Template directory: {template_dir}")
+    print(f"Static directory: {static_dir}")
+    print(f"Template dir exists: {os.path.exists(template_dir)}")
+    
+    app = Flask(__name__, 
+                template_folder=template_dir,
+                static_folder=static_dir if os.path.exists(static_dir) else None)
     
     # Configure Flask app
     app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
