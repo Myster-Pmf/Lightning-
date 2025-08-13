@@ -220,3 +220,78 @@ def upload_file():
             "success": False,
             "error": str(e)
         }), 500
+
+@files_bp.route('/upload-to-remote', methods=['POST'])
+def upload_to_remote():
+    """Upload a local file to the remote Lightning AI Studio"""
+    try:
+        data = request.get_json()
+        local_file_path = data.get('local_file_path')
+        remote_file_path = data.get('remote_file_path')
+        
+        if not local_file_path:
+            return jsonify({
+                "success": False,
+                "error": "Local file path is required"
+            }), 400
+        
+        file_service = current_app.config['FILE_SERVICE']
+        result = file_service.upload_to_remote(local_file_path, remote_file_path)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@files_bp.route('/download-from-remote', methods=['POST'])
+def download_from_remote():
+    """Download a file from the remote Lightning AI Studio"""
+    try:
+        data = request.get_json()
+        remote_file_path = data.get('remote_file_path')
+        local_file_path = data.get('local_file_path')
+        
+        if not remote_file_path:
+            return jsonify({
+                "success": False,
+                "error": "Remote file path is required"
+            }), 400
+        
+        file_service = current_app.config['FILE_SERVICE']
+        result = file_service.download_from_remote(remote_file_path, local_file_path)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@files_bp.route('/run-remote-command', methods=['POST'])
+def run_remote_command():
+    """Run a command on the remote Lightning AI Studio"""
+    try:
+        data = request.get_json()
+        command = data.get('command')
+        timeout = data.get('timeout', 300)
+        
+        if not command:
+            return jsonify({
+                "success": False,
+                "error": "Command is required"
+            }), 400
+        
+        file_service = current_app.config['FILE_SERVICE']
+        result = file_service.run_remote_command(command, timeout)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500

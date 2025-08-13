@@ -26,6 +26,9 @@ def create_dashboard_app():
     scheduler_service = SchedulerService()
     file_service = FileService()
     
+    # Pass studio instance to file service for remote operations
+    file_service.set_studio(lightning_service.studio)
+    
     # Store services in app config for access in routes
     app.config['LIGHTNING_SERVICE'] = lightning_service
     app.config['SCHEDULER_SERVICE'] = scheduler_service

@@ -5,6 +5,7 @@ import os
 import json
 import subprocess
 import time
+import tempfile
 from datetime import datetime
 from ..utils.logging_utils import debug_print, log_event
 
@@ -14,7 +15,12 @@ class FileService:
     def __init__(self):
         self.executions = []
         self.executions_file = "data/executions.json"
+        self.studio = None  # Will be set by the app
         self._load_executions()
+    
+    def set_studio(self, studio):
+        """Set the studio instance for remote operations"""
+        self.studio = studio
     
     def _ensure_data_dir(self):
         """Ensure data directory exists"""
@@ -123,104 +129,137 @@ class FileService:
             return False, str(e)
     
     def execute_file(self, file_path, interpreter="python", args="", timeout=300):
-        """Execute a file with specified interpreter"""
+        """Execute a file on the remote Lightning AI Studio"""
         execution_id = f"exec_{int(time.time())}"
         
         try:
+            # Check if studio is available and running
+            if not self.studio:
+                return {"success": False, "error": "Studio not initialized", "execution_id": execution_id}
+            
+            # Check studio status
+            try:
+                status = str(self.studio.status)
+                if status.lower() not in ['running', 'started']:
+                    return {"success": False, "error": f"Studio is not running (status: {status})", "execution_id": execution_id}
+            except Exception as e:
+                return {"success": False, "error": f"Cannot check studio status: {str(e)}", "execution_id": execution_id}
+            
             if not os.path.exists(file_path):
                 return {"success": False, "error": "File not found", "execution_id": execution_id}
             
-            # Build command
-            if interpreter == "python":
-                command = f"python {file_path} {args}".strip()
-            elif interpreter == "bash":
-                command = f"bash {file_path} {args}".strip()
-            elif interpreter == "node":
-                command = f"node {file_path} {args}".strip()
-            else:
-                command = f"{interpreter} {file_path} {args}".strip()
+            # Get file name and prepare remote path
+            file_name = os.path.basename(file_path)
+            remote_file_path = f"/tmp/{file_name}"
             
-            log_event("file_execute_start", f"Executing: {command}", "event")
+            log_event("file_execute_start", f"Uploading and executing {file_path} on remote studio", "event")
             
             start_time = time.time()
             
-            # Execute command
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=os.path.dirname(file_path) if os.path.dirname(file_path) else "."
-            )
+            # Step 1: Upload file to remote studio
+            try:
+                self.studio.upload(file_path, remote_file_path)
+                debug_print(f"File uploaded to remote studio: {file_path} -> {remote_file_path}")
+            except Exception as e:
+                error_msg = f"Failed to upload file to remote studio: {str(e)}"
+                log_event("file_upload_error", error_msg, "error")
+                return {"success": False, "error": error_msg, "execution_id": execution_id}
             
-            end_time = time.time()
-            execution_time = end_time - start_time
+            # Step 2: Build command for remote execution
+            if interpreter == "python":
+                command = f"cd /tmp && python {file_name} {args}".strip()
+            elif interpreter == "bash":
+                command = f"cd /tmp && bash {file_name} {args}".strip()
+            elif interpreter == "node":
+                command = f"cd /tmp && node {file_name} {args}".strip()
+            else:
+                command = f"cd /tmp && {interpreter} {file_name} {args}".strip()
+            
+            # Step 3: Execute command on remote studio
+            try:
+                debug_print(f"Executing command on remote studio: {command}")
+                result = self.studio.run(command, timeout=timeout)
+                
+                end_time = time.time()
+                execution_time = end_time - start_time
+                
+                # Parse result - studio.run() returns a CompletedProcess-like object
+                if hasattr(result, 'returncode'):
+                    return_code = result.returncode
+                    stdout = getattr(result, 'stdout', str(result))
+                    stderr = getattr(result, 'stderr', '')
+                else:
+                    # If result is just a string output
+                    return_code = 0
+                    stdout = str(result)
+                    stderr = ''
+                
+                success = return_code == 0
+                
+            except Exception as e:
+                end_time = time.time()
+                execution_time = end_time - start_time
+                error_msg = str(e)
+                
+                # Check if it's a timeout error
+                if "timeout" in error_msg.lower():
+                    return_code = -1
+                    stdout = ""
+                    stderr = f"Execution timed out after {timeout} seconds"
+                    success = False
+                else:
+                    return_code = -1
+                    stdout = ""
+                    stderr = error_msg
+                    success = False
+            
+            # Step 4: Clean up remote file (optional, but good practice)
+            try:
+                self.studio.run(f"rm -f {remote_file_path}")
+                debug_print(f"Cleaned up remote file: {remote_file_path}")
+            except Exception as e:
+                debug_print(f"Warning: Could not clean up remote file {remote_file_path}: {e}")
             
             # Record execution
             execution_record = {
                 "id": execution_id,
                 "file_path": file_path,
+                "remote_path": remote_file_path,
                 "command": command,
                 "timestamp": datetime.now().isoformat(),
                 "execution_time": execution_time,
-                "return_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "success": result.returncode == 0
+                "return_code": return_code,
+                "stdout": stdout,
+                "stderr": stderr,
+                "success": success,
+                "execution_location": "remote_studio"
             }
             
             self.executions.append(execution_record)
             self._save_executions()
             
-            if result.returncode == 0:
-                log_event("file_execute_success", f"File executed successfully: {file_path}", "event", {
+            if success:
+                log_event("file_execute_success", f"File executed successfully on remote studio: {file_path}", "event", {
                     "execution_time": execution_time,
-                    "command": command
+                    "command": command,
+                    "remote_path": remote_file_path
                 })
             else:
-                log_event("file_execute_error", f"File execution failed: {file_path}", "error", {
-                    "return_code": result.returncode,
+                log_event("file_execute_error", f"File execution failed on remote studio: {file_path}", "error", {
+                    "return_code": return_code,
                     "command": command,
-                    "error": result.stderr[:500]
+                    "error": stderr[:500]
                 })
             
             return {
-                "success": result.returncode == 0,
+                "success": success,
                 "execution_id": execution_id,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "return_code": result.returncode,
-                "execution_time": execution_time
-            }
-            
-        except subprocess.TimeoutExpired:
-            error_msg = f"Execution timed out after {timeout} seconds"
-            log_event("file_execute_timeout", f"File execution timeout: {file_path}", "error")
-            
-            execution_record = {
-                "id": execution_id,
-                "file_path": file_path,
-                "command": command if 'command' in locals() else file_path,
-                "timestamp": datetime.now().isoformat(),
-                "execution_time": timeout,
-                "return_code": -1,
-                "stdout": "",
-                "stderr": error_msg,
-                "success": False
-            }
-            
-            self.executions.append(execution_record)
-            self._save_executions()
-            
-            return {
-                "success": False,
-                "execution_id": execution_id,
-                "error": error_msg,
-                "stdout": "",
-                "stderr": error_msg,
-                "return_code": -1,
-                "execution_time": timeout
+                "stdout": stdout,
+                "stderr": stderr,
+                "return_code": return_code,
+                "execution_time": execution_time,
+                "execution_location": "remote_studio",
+                "remote_path": remote_file_path
             }
             
         except Exception as e:
@@ -236,7 +275,8 @@ class FileService:
                 "return_code": -1,
                 "stdout": "",
                 "stderr": error_msg,
-                "success": False
+                "success": False,
+                "execution_location": "remote_studio"
             }
             
             self.executions.append(execution_record)
@@ -249,7 +289,8 @@ class FileService:
                 "stdout": "",
                 "stderr": error_msg,
                 "return_code": -1,
-                "execution_time": 0
+                "execution_time": 0,
+                "execution_location": "remote_studio"
             }
     
     def get_execution_history(self, limit=50):
@@ -262,3 +303,146 @@ class FileService:
             if execution["id"] == execution_id:
                 return execution
         return None
+    
+    def upload_to_remote(self, local_file_path, remote_file_path=None):
+        """Upload a file to the remote Lightning AI Studio"""
+        try:
+            if not self.studio:
+                return {"success": False, "error": "Studio not initialized"}
+            
+            # Check studio status
+            try:
+                status = str(self.studio.status)
+                if status.lower() not in ['running', 'started']:
+                    return {"success": False, "error": f"Studio is not running (status: {status})"}
+            except Exception as e:
+                return {"success": False, "error": f"Cannot check studio status: {str(e)}"}
+            
+            if not os.path.exists(local_file_path):
+                return {"success": False, "error": "Local file not found"}
+            
+            # Default remote path if not specified
+            if remote_file_path is None:
+                file_name = os.path.basename(local_file_path)
+                remote_file_path = f"/tmp/{file_name}"
+            
+            # Upload file
+            self.studio.upload(local_file_path, remote_file_path)
+            
+            log_event("file_upload_success", f"File uploaded: {local_file_path} -> {remote_file_path}", "event")
+            
+            return {
+                "success": True,
+                "local_path": local_file_path,
+                "remote_path": remote_file_path,
+                "message": f"File uploaded successfully to {remote_file_path}"
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            log_event("file_upload_error", f"Upload failed: {local_file_path} - {error_msg}", "error")
+            return {"success": False, "error": error_msg}
+    
+    def download_from_remote(self, remote_file_path, local_file_path=None):
+        """Download a file from the remote Lightning AI Studio"""
+        try:
+            if not self.studio:
+                return {"success": False, "error": "Studio not initialized"}
+            
+            # Check studio status
+            try:
+                status = str(self.studio.status)
+                if status.lower() not in ['running', 'started']:
+                    return {"success": False, "error": f"Studio is not running (status: {status})"}
+            except Exception as e:
+                return {"success": False, "error": f"Cannot check studio status: {str(e)}"}
+            
+            # Default local path if not specified
+            if local_file_path is None:
+                file_name = os.path.basename(remote_file_path)
+                local_file_path = f"downloads/{file_name}"
+                
+                # Ensure downloads directory exists
+                os.makedirs("downloads", exist_ok=True)
+            
+            # Download file
+            self.studio.download(remote_file_path, local_file_path)
+            
+            log_event("file_download_success", f"File downloaded: {remote_file_path} -> {local_file_path}", "event")
+            
+            return {
+                "success": True,
+                "remote_path": remote_file_path,
+                "local_path": local_file_path,
+                "message": f"File downloaded successfully to {local_file_path}"
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            log_event("file_download_error", f"Download failed: {remote_file_path} - {error_msg}", "error")
+            return {"success": False, "error": error_msg}
+    
+    def run_remote_command(self, command, timeout=300):
+        """Run a command directly on the remote Lightning AI Studio"""
+        try:
+            if not self.studio:
+                return {"success": False, "error": "Studio not initialized"}
+            
+            # Check studio status
+            try:
+                status = str(self.studio.status)
+                if status.lower() not in ['running', 'started']:
+                    return {"success": False, "error": f"Studio is not running (status: {status})"}
+            except Exception as e:
+                return {"success": False, "error": f"Cannot check studio status: {str(e)}"}
+            
+            log_event("remote_command_start", f"Running remote command: {command}", "event")
+            
+            start_time = time.time()
+            
+            # Execute command on remote studio
+            result = self.studio.run(command, timeout=timeout)
+            
+            end_time = time.time()
+            execution_time = end_time - start_time
+            
+            # Parse result
+            if hasattr(result, 'returncode'):
+                return_code = result.returncode
+                stdout = getattr(result, 'stdout', str(result))
+                stderr = getattr(result, 'stderr', '')
+            else:
+                return_code = 0
+                stdout = str(result)
+                stderr = ''
+            
+            success = return_code == 0
+            
+            if success:
+                log_event("remote_command_success", f"Remote command executed successfully: {command}", "event", {
+                    "execution_time": execution_time
+                })
+            else:
+                log_event("remote_command_error", f"Remote command failed: {command}", "error", {
+                    "return_code": return_code,
+                    "error": stderr[:500]
+                })
+            
+            return {
+                "success": success,
+                "stdout": stdout,
+                "stderr": stderr,
+                "return_code": return_code,
+                "execution_time": execution_time,
+                "command": command
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            log_event("remote_command_exception", f"Remote command exception: {command} - {error_msg}", "error")
+            
+            return {
+                "success": False,
+                "error": error_msg,
+                "command": command
+            }
