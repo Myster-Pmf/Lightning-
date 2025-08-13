@@ -21,13 +21,43 @@ def create_dashboard_app():
     """Create the enhanced dashboard application"""
     app = Flask(__name__)
     
-    # Initialize services
-    lightning_service = LightningService()
-    scheduler_service = SchedulerService()
-    file_service = FileService()
+    # Configure Flask app
+    app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
+    app.config['DEBUG'] = os.getenv('DEBUG', 'False').lower() == 'true'
+    
+    # Set environment variables for services
+    app.config['STUDIO_NAME'] = os.getenv('STUDIO_NAME')
+    app.config['TEAMSPACE'] = os.getenv('TEAMSPACE') 
+    app.config['USERNAME'] = os.getenv('USERNAME')
+    app.config['SUPABASE_URL'] = os.getenv('SUPABASE_URL')
+    app.config['SUPABASE_API_KEY'] = os.getenv('SUPABASE_API_KEY')
+    
+    # Initialize services with error handling
+    try:
+        lightning_service = LightningService()
+        print("Lightning service initialized successfully")
+    except Exception as e:
+        print(f"Error initializing Lightning service: {e}")
+        lightning_service = None
+    
+    try:
+        scheduler_service = SchedulerService()
+        print("Scheduler service initialized successfully")
+    except Exception as e:
+        print(f"Error initializing Scheduler service: {e}")
+        scheduler_service = None
+    
+    try:
+        file_service = FileService()
+        print("File service initialized successfully")
+    except Exception as e:
+        print(f"Error initializing File service: {e}")
+        file_service = None
     
     # Pass studio instance to file service for remote operations
-    file_service.set_studio(lightning_service.studio)
+    if file_service and lightning_service and lightning_service.studio:
+        file_service.set_studio(lightning_service.studio)
+        print("Studio instance passed to file service")
     
     # Store services in app config for access in routes
     app.config['LIGHTNING_SERVICE'] = lightning_service
@@ -43,19 +73,31 @@ def create_dashboard_app():
     
     # Start background services
     def start_background_services():
-        # Start monitor thread
-        monitor_thread = threading.Thread(target=lightning_service.monitor_loop)
-        monitor_thread.daemon = True
-        monitor_thread.start()
+        try:
+            # Start monitor thread
+            if lightning_service:
+                monitor_thread = threading.Thread(target=lightning_service.monitor_loop)
+                monitor_thread.daemon = True
+                monitor_thread.start()
+                print("Monitor thread started")
+        except Exception as e:
+            print(f"Error starting monitor thread: {e}")
         
-        # Start scheduler thread
-        scheduler_thread = threading.Thread(target=scheduler_service.run_scheduler)
-        scheduler_thread.daemon = True
-        scheduler_thread.start()
+        try:
+            # Start scheduler thread
+            if scheduler_service:
+                scheduler_thread = threading.Thread(target=scheduler_service.run_scheduler)
+                scheduler_thread.daemon = True
+                scheduler_thread.start()
+                print("Scheduler thread started")
+        except Exception as e:
+            print(f"Error starting scheduler thread: {e}")
     
     # Start services after a short delay to ensure app is ready
-    threading.Timer(1.0, start_background_services).start()
-    
-    log_event("startup", "Enhanced Lightning AI Dashboard starting")
+    try:
+        threading.Timer(1.0, start_background_services).start()
+        log_event("startup", "Enhanced Lightning AI Dashboard starting")
+    except Exception as e:
+        print(f"Warning: Could not start background services: {e}")
     
     return app
