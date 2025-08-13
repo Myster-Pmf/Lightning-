@@ -66,7 +66,7 @@
             </div>
             
             <div class="mb-2">
-                <input type="text" id="remoteCurrentPath" value="/tmp" readonly
+                <input type="text" id="remoteCurrentPath" value="" placeholder="Loading current directory..."
                        class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-gray-300">
             </div>
             
@@ -594,15 +594,23 @@ function refreshFiles() {
 async function loadRemoteFiles() {
     try {
         const currentPath = document.getElementById('remoteCurrentPath').value;
+        // If no path is set, let the backend determine the default directory
+        const requestBody = currentPath ? { path: currentPath } : {};
+        
         const response = await fetch('/files/list-remote', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: currentPath })
+            body: JSON.stringify(requestBody)
         });
         
         const data = await response.json();
         
         if (data.success) {
+            // Update the current path display with the actual path from server
+            if (data.path) {
+                document.getElementById('remoteCurrentPath').value = data.path;
+            }
+            
             const remoteFilesList = document.getElementById('remoteFilesList');
             remoteFilesList.innerHTML = '';
             
@@ -644,13 +652,16 @@ async function loadRemoteFiles() {
                 remoteFilesList.appendChild(fileItem);
             });
         } else {
+            console.error('Remote files error:', data.error);
             const remoteFilesList = document.getElementById('remoteFilesList');
             remoteFilesList.innerHTML = `<div class="text-red-400 text-center py-4 text-sm">Error: ${data.error}</div>`;
+            showNotification(`Failed to load remote files: ${data.error}`, 'error');
         }
     } catch (error) {
         console.error('Error loading remote files:', error);
         const remoteFilesList = document.getElementById('remoteFilesList');
-        remoteFilesList.innerHTML = '<div class="text-red-400 text-center py-4 text-sm">Failed to load remote files</div>';
+        remoteFilesList.innerHTML = '<div class="text-red-400 text-center py-4 text-sm">Network error - check console</div>';
+        showNotification('Network error loading remote files', 'error');
     }
 }
 

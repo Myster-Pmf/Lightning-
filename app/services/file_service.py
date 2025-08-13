@@ -609,7 +609,7 @@ class FileService:
                 "execution_location": "remote_studio"
             }
     
-    def list_remote_files(self, path="/tmp"):
+    def list_remote_files(self, path=None):
         """List files on the remote Lightning AI Studio"""
         try:
             if not self.studio:
@@ -624,46 +624,104 @@ class FileService:
             except Exception as e:
                 return {"success": False, "error": f"Cannot check studio status: {str(e)}"}
             
-            # Run ls command to list files
-            command = f"ls -la {path}"
+            # If no path specified, get current working directory first
+            if path is None:
+                pwd_result = self.studio.run("pwd")
+                if pwd_result:
+                    path = str(pwd_result).strip()
+                else:
+                    path = "~"  # fallback to home directory
+            
+            debug_print(f"Listing remote files in path: {path}")
+            
+            # Use ls -la for detailed listing
+            command = f"ls -la '{path}' 2>/dev/null || ls -la ."
             result = self.studio.run(command)
             
-            if hasattr(result, 'returncode') and result.returncode != 0:
-                return {"success": False, "error": "Failed to list remote files"}
+            debug_print(f"ls command result type: {type(result)}")
+            debug_print(f"ls command result: {result}")
             
             output = str(result) if result else ""
+            debug_print(f"ls output: {output}")
+            
+            if not output or "No such file or directory" in output:
+                return {"success": False, "error": f"Directory '{path}' not found or not accessible"}
+            
             files = []
             
-            # Parse ls output
+            # Parse ls -la output
             lines = output.strip().split('\n')
-            for line in lines[1:]:  # Skip the first line (total)
-                if not line.strip():
+            debug_print(f"Total lines: {len(lines)}")
+            
+            for i, line in enumerate(lines):
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Skip total line and empty lines
+                if line.startswith('total ') or i == 0:
                     continue
                     
+                debug_print(f"Processing line {i}: {line}")
+                
+                # Split by whitespace, but be careful with filenames containing spaces
                 parts = line.split()
-                if len(parts) >= 9:
-                    permissions = parts[0]
-                    size = parts[4] if parts[4].isdigit() else 0
-                    name = ' '.join(parts[8:])
-                    
-                    if name in ['.', '..']:
-                        continue
-                    
-                    file_type = 'directory' if permissions.startswith('d') else 'file'
-                    file_path = f"{path.rstrip('/')}/{name}"
-                    
-                    files.append({
-                        "name": name,
-                        "path": file_path,
-                        "size": int(size) if str(size).isdigit() else 0,
-                        "type": file_type,
-                        "permissions": permissions
-                    })
+                if len(parts) < 9:
+                    debug_print(f"Skipping line with insufficient parts: {len(parts)}")
+                    continue
+                
+                permissions = parts[0]
+                links = parts[1]
+                owner = parts[2]
+                group = parts[3]
+                size = parts[4]
+                month = parts[5]
+                day = parts[6]
+                time_or_year = parts[7]
+                
+                # Handle filenames with spaces - everything after the 8th part
+                name = ' '.join(parts[8:])
+                
+                # Skip . and .. directories
+                if name in ['.', '..']:
+                    continue
+                
+                # Determine file type
+                file_type = 'directory' if permissions.startswith('d') else 'file'
+                
+                # Build full path
+                if path.endswith('/'):
+                    file_path = f"{path}{name}"
+                else:
+                    file_path = f"{path}/{name}"
+                
+                # Parse size
+                file_size = 0
+                try:
+                    file_size = int(size) if size.isdigit() else 0
+                except:
+                    pass
+                
+                files.append({
+                    "name": name,
+                    "path": file_path,
+                    "size": file_size,
+                    "type": file_type,
+                    "permissions": permissions,
+                    "owner": owner,
+                    "group": group,
+                    "modified": f"{month} {day} {time_or_year}"
+                })
+                
+                debug_print(f"Added file: {name} ({file_type})")
             
+            debug_print(f"Total files found: {len(files)}")
             return {"success": True, "files": files, "path": path}
             
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            error_msg = str(e)
+            debug_print(f"Error in list_remote_files: {error_msg}")
+            return {"success": False, "error": error_msg}
     
     def delete_remote_file(self, file_path):
         """Delete a file on the remote Lightning AI Studio"""
