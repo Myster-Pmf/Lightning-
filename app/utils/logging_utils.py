@@ -1,19 +1,17 @@
 """
-Enhanced logging utilities with Supabase integration
+Enhanced logging utilities with local JSON file storage
 """
 import os
 import json
-import requests
 import logging
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Supabase configuration
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_API_KEY = os.getenv("SUPABASE_API_KEY")
-TABLE_NAME = "studio_logs"
+# Local JSON file configuration
+LOGS_FILE = "data/studio_logs.json"
+MAX_LOGS = 10000  # Maximum number of logs to keep
 
 # Debug configuration
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
@@ -30,82 +28,86 @@ def debug_print(message):
     if DEBUG:
         print(f"[DEBUG {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}")
 
-def log_event(event_type, note="", type="event", metadata=None):
-    """Enhanced logging function with better error handling"""
-    debug_print(f"Logging to Supabase: {event_type} - {note}")
-    
-    if not SUPABASE_URL or not SUPABASE_API_KEY:
-        debug_print("Supabase URL or API Key is not set. Skipping log.")
+def _ensure_logs_dir():
+    """Ensure logs directory exists"""
+    os.makedirs("data", exist_ok=True)
+
+def _load_logs():
+    """Load logs from JSON file"""
+    try:
+        if os.path.exists(LOGS_FILE):
+            with open(LOGS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        debug_print(f"Error loading logs: {e}")
+    return []
+
+def _save_logs(logs):
+    """Save logs to JSON file"""
+    try:
+        _ensure_logs_dir()
+        # Keep only the most recent logs
+        if len(logs) > MAX_LOGS:
+            logs = logs[-MAX_LOGS:]
+        
+        with open(LOGS_FILE, 'w') as f:
+            json.dump(logs, f, indent=2)
+        return True
+    except Exception as e:
+        debug_print(f"Error saving logs: {e}")
         return False
 
-    payload = {
-        "timestamp": datetime.now().isoformat(),
-        "event_type": event_type,
-        "note": note[:255] if note else "",
-        "type": type,
-        "metadata": json.dumps(metadata) if metadata else None
-    }
-    
-    headers = {
-        "apikey": SUPABASE_API_KEY,
-        "Authorization": f"Bearer {SUPABASE_API_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal"
-    }
+def log_event(event_type, note="", type="event", metadata=None):
+    """Enhanced logging function with local JSON storage"""
+    debug_print(f"Logging to local file: {event_type} - {note}")
     
     try:
-        response = requests.post(
-            f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}", 
-            json=payload, 
-            headers=headers, 
-            timeout=10
-        )
+        # Load existing logs
+        logs = _load_logs()
         
-        if response.status_code not in [200, 201]:
-            debug_print(f"Supabase Log Error: {response.status_code} - {response.text}")
-            return False
+        # Create new log entry
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "event_type": event_type,
+            "note": note[:255] if note else "",
+            "type": type,
+            "metadata": metadata if metadata else {}
+        }
         
-        return True
+        # Add to logs
+        logs.append(log_entry)
+        
+        # Save logs
+        return _save_logs(logs)
         
     except Exception as e:
-        debug_print(f"Supabase Log Exception: {e}")
+        debug_print(f"Local Log Exception: {e}")
         return False
 
 def get_logs(hours=24, limit=500):
-    """Fetch logs from Supabase"""
-    if not SUPABASE_URL or not SUPABASE_API_KEY:
-        return []
-    
-    headers = {
-        "apikey": SUPABASE_API_KEY,
-        "Authorization": f"Bearer {SUPABASE_API_KEY}"
-    }
-    
+    """Fetch logs from local JSON file"""
     try:
-        since = (datetime.now() - timedelta(hours=hours)).isoformat()
-        url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
-        params = {
-            "order": "timestamp.desc",
-            "limit": limit,
-            "timestamp": f"gte.{since}"
-        }
+        logs = _load_logs()
         
-        response = requests.get(url, headers=headers, params=params, timeout=15)
+        # Filter by time range
+        since = datetime.now() - timedelta(hours=hours)
+        filtered_logs = []
         
-        if response.status_code == 200:
-            logs = response.json()
-            # Parse metadata strings back to objects
-            for log in logs:
-                if isinstance(log.get('metadata'), str):
-                    try:
-                        log['metadata'] = json.loads(log['metadata'])
-                    except:
-                        log['metadata'] = {}
-            return logs
-        else:
-            debug_print(f"Failed to fetch logs: {response.status_code} {response.text}")
-            return []
-            
+        for log in logs:
+            try:
+                log_time = datetime.fromisoformat(log['timestamp'].replace('Z', '+00:00'))
+                if log_time >= since:
+                    filtered_logs.append(log)
+            except Exception as e:
+                debug_print(f"Error parsing log timestamp: {e}")
+                # Include logs with parsing errors anyway
+                filtered_logs.append(log)
+        
+        # Sort by timestamp (newest first) and limit
+        filtered_logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        return filtered_logs[:limit]
+        
     except Exception as e:
         debug_print(f"Exception fetching logs: {e}")
         return []

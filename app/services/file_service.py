@@ -187,18 +187,27 @@ class FileService:
                 end_time = time.time()
                 execution_time = end_time - start_time
                 
-                # Parse result - studio.run() returns a CompletedProcess-like object
+                debug_print(f"Raw result from studio.run(): {type(result)} - {result}")
+                
+                # Parse result - handle different return types from studio.run()
                 if hasattr(result, 'returncode'):
+                    # CompletedProcess-like object
                     return_code = result.returncode
                     stdout = getattr(result, 'stdout', str(result))
                     stderr = getattr(result, 'stderr', '')
+                elif hasattr(result, 'exit_code'):
+                    # Alternative format
+                    return_code = result.exit_code
+                    stdout = getattr(result, 'output', str(result))
+                    stderr = getattr(result, 'error', '')
                 else:
-                    # If result is just a string output
+                    # If result is just a string output (successful execution)
                     return_code = 0
-                    stdout = str(result)
+                    stdout = str(result) if result is not None else ""
                     stderr = ''
                 
                 success = return_code == 0
+                debug_print(f"Parsed execution result: success={success}, return_code={return_code}, stdout_len={len(stdout)}, stderr_len={len(stderr)}")
                 
             except Exception as e:
                 end_time = time.time()

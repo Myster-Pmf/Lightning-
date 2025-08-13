@@ -87,8 +87,8 @@ def debug():
             'studio_name': current_app.config.get('STUDIO_NAME'),
             'teamspace': current_app.config.get('TEAMSPACE'),
             'username': current_app.config.get('USERNAME'),
-            'supabase_url': current_app.config.get('SUPABASE_URL'),
-            'supabase_api_key': '***SET***' if current_app.config.get('SUPABASE_API_KEY') else 'NOT SET'
+            'logging_system': 'Local JSON Files',
+            'logs_location': 'data/studio_logs.json'
         }
         
         # Get studio status

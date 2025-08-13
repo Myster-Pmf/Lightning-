@@ -41,8 +41,6 @@ def create_dashboard_app():
     app.config['STUDIO_NAME'] = os.getenv('STUDIO_NAME')
     app.config['TEAMSPACE'] = os.getenv('TEAMSPACE') 
     app.config['USERNAME'] = os.getenv('USERNAME')
-    app.config['SUPABASE_URL'] = os.getenv('SUPABASE_URL')
-    app.config['SUPABASE_API_KEY'] = os.getenv('SUPABASE_API_KEY')
     
     # Initialize services with error handling
     try:
