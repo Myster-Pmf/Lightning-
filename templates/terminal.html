@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Terminal - Lightning AI Studio{% endblock %}
+{% block title %}Remote Terminal - Lightning AI Studio{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
@@ -9,17 +9,21 @@
         <div>
             <h1 class="text-3xl font-bold mb-2">
                 <i class="fas fa-terminal text-purple-400 mr-3"></i>
-                Python Terminal
+                Remote Terminal
             </h1>
-            <p class="text-gray-400">Interactive Python environment with Lightning SDK</p>
+            <p class="text-gray-400">Jupyter-like notebook interface running on Lightning AI Studio</p>
+            <div id="studioStatus" class="mt-2 text-sm">
+                <span class="inline-block w-2 h-2 rounded-full bg-gray-500 mr-2"></span>
+                <span class="text-gray-400">Checking studio status...</span>
+            </div>
         </div>
         
         <div class="flex space-x-3 mt-4 md:mt-0">
-            <button onclick="resetInterpreter()" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold">
-                <i class="fas fa-sync-alt mr-2"></i>Reset Session
+            <button onclick="clearAllCells()" class="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded-lg font-semibold">
+                <i class="fas fa-eraser mr-2"></i>Clear All
             </button>
-            <button onclick="clearTerminal()" class="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded-lg font-semibold">
-                <i class="fas fa-eraser mr-2"></i>Clear
+            <button onclick="addNewCell()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-semibold">
+                <i class="fas fa-plus mr-2"></i>Add Cell
             </button>
         </div>
     </div>
@@ -28,66 +32,58 @@
     <div class="card rounded-lg shadow-lg p-6">
         <h3 class="text-lg font-semibold mb-4">Quick Commands</h3>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <button class="preset-btn" onclick="runPreset('studio.status')">Studio Status</button>
-            <button class="preset-btn" onclick="runPreset('studio.start(Machine.CPU)')">Start Studio</button>
-            <button class="preset-btn" onclick="runPreset('studio.stop()')">Stop Studio</button>
-            <button class="preset-btn" onclick="runPreset('Studio.list()')">List Studios</button>
-            <button class="preset-btn" onclick="runPreset('datetime.now()')">Current Time</button>
-            <button class="preset-btn" onclick="runPreset('import os; os.getcwd()')">Current Dir</button>
-            <button class="preset-btn" onclick="runPreset('import sys; sys.version')">Python Version</button>
-            <button class="preset-btn" onclick="runPreset('help(studio)')">Studio Help</button>
+            <button class="preset-btn" onclick="addCellWithCode('pwd')">Current Directory</button>
+            <button class="preset-btn" onclick="addCellWithCode('python --version')">Python Version</button>
+            <button class="preset-btn" onclick="addCellWithCode('ls -la')">List Files</button>
+            <button class="preset-btn" onclick="addCellWithCode('pip list')">Installed Packages</button>
+            <button class="preset-btn" onclick="addCellWithCode('nvidia-smi')">GPU Info</button>
+            <button class="preset-btn" onclick="addCellWithCode('df -h')">Disk Usage</button>
+            <button class="preset-btn" onclick="addCellWithCode('free -h')">Memory Usage</button>
+            <button class="preset-btn" onclick="addCellWithCode('whoami && hostname')">System Info</button>
         </div>
     </div>
 
-    <!-- Terminal -->
-    <div class="card rounded-lg shadow-lg p-6">
-        <div id="terminal" class="bg-black rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm"></div>
-        
-        <div class="mt-4 flex items-start space-x-3">
-            <span class="prompt text-green-400 text-lg font-bold mt-2">&gt;&gt;&gt;</span>
-            <div class="flex-1">
-                <textarea id="commandInput" 
-                          class="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-green-400 font-mono text-sm resize-none" 
-                          placeholder="Enter Python code... (Shift+Enter for new line, Enter to execute)"
-                          rows="1"></textarea>
-            </div>
-            <button onclick="runCommand()" 
-                    class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg font-semibold mt-1">
-                <i class="fas fa-play mr-2"></i>Run
-            </button>
-        </div>
+    <!-- Notebook Cells Container -->
+    <div id="notebookContainer" class="space-y-4">
+        <!-- Initial cell will be added by JavaScript -->
+    </div>
+
+    <!-- Add Cell Button -->
+    <div class="text-center">
+        <button onclick="addNewCell()" class="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-lg font-semibold">
+            <i class="fas fa-plus mr-2"></i>Add New Cell
+        </button>
     </div>
 
     <!-- Help -->
     <div class="card rounded-lg shadow-lg p-6">
-        <h3 class="text-lg font-semibold mb-4">Available Objects & Functions</h3>
+        <h3 class="text-lg font-semibold mb-4">Remote Terminal Features</h3>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
             <div>
-                <h4 class="font-semibold text-blue-400 mb-2">Lightning SDK</h4>
+                <h4 class="font-semibold text-blue-400 mb-2">Execution</h4>
                 <ul class="space-y-1 text-gray-300">
-                    <li><code>studio</code> - Current studio instance</li>
-                    <li><code>Machine</code> - Machine types (CPU, GPU, etc.)</li>
-                    <li><code>Studio</code> - Studio class</li>
+                    <li>All commands run on remote Lightning AI Studio</li>
+                    <li>Full access to studio environment</li>
+                    <li>Real-time output display</li>
+                    <li>Execution timing information</li>
                 </ul>
             </div>
             <div>
-                <h4 class="font-semibold text-green-400 mb-2">Standard Libraries</h4>
+                <h4 class="font-semibold text-green-400 mb-2">Cell Controls</h4>
                 <ul class="space-y-1 text-gray-300">
-                    <li><code>os</code> - Operating system interface</li>
-                    <li><code>sys</code> - System-specific parameters</li>
-                    <li><code>time</code> - Time-related functions</li>
-                    <li><code>json</code> - JSON encoder/decoder</li>
-                    <li><code>requests</code> - HTTP library</li>
-                    <li><code>datetime</code> - Date and time handling</li>
+                    <li><kbd>Ctrl+Enter</kbd> - Run cell</li>
+                    <li><kbd>Shift+Enter</kbd> - Run cell and add new</li>
+                    <li>Click Run button to execute</li>
+                    <li>Delete cells individually</li>
                 </ul>
             </div>
             <div>
-                <h4 class="font-semibold text-purple-400 mb-2">Tips</h4>
+                <h4 class="font-semibold text-purple-400 mb-2">Supported Commands</h4>
                 <ul class="space-y-1 text-gray-300">
-                    <li>Variables persist between commands</li>
-                    <li>Use Shift+Enter for multi-line input</li>
-                    <li>Press Enter to execute</li>
-                    <li>Use <code>help(object)</code> for documentation</li>
+                    <li>Python scripts and commands</li>
+                    <li>Shell/bash commands</li>
+                    <li>System utilities (ls, pwd, etc.)</li>
+                    <li>Package management (pip, conda)</li>
                 </ul>
             </div>
         </div>
@@ -97,118 +93,235 @@
 
 {% block extra_js %}
 <script>
-const terminal = document.getElementById('terminal');
-const commandInput = document.getElementById('commandInput');
+let cellCounter = 0;
+let studioStatusInterval;
 
-function appendToTerminal(htmlContent) {
-    terminal.innerHTML += htmlContent;
-    terminal.scrollTop = terminal.scrollHeight;
+// Check studio status
+async function checkStudioStatus() {
+    try {
+        const response = await fetch('/api/status');
+        const data = await response.json();
+        
+        const statusElement = document.getElementById('studioStatus');
+        const indicator = statusElement.querySelector('.rounded-full');
+        const text = statusElement.querySelector('span:last-child');
+        
+        if (data.status === 'running' || data.status === 'started') {
+            indicator.className = 'inline-block w-2 h-2 rounded-full bg-green-500 mr-2';
+            text.textContent = `Studio is running (${data.status})`;
+            text.className = 'text-green-400';
+        } else if (data.status === 'stopped') {
+            indicator.className = 'inline-block w-2 h-2 rounded-full bg-red-500 mr-2';
+            text.textContent = 'Studio is stopped';
+            text.className = 'text-red-400';
+        } else {
+            indicator.className = 'inline-block w-2 h-2 rounded-full bg-yellow-500 mr-2';
+            text.textContent = `Studio status: ${data.status}`;
+            text.className = 'text-yellow-400';
+        }
+    } catch (error) {
+        const statusElement = document.getElementById('studioStatus');
+        const indicator = statusElement.querySelector('.rounded-full');
+        const text = statusElement.querySelector('span:last-child');
+        
+        indicator.className = 'inline-block w-2 h-2 rounded-full bg-red-500 mr-2';
+        text.textContent = 'Error checking studio status';
+        text.className = 'text-red-400';
+    }
 }
 
-function initialMessage() {
-    appendToTerminal(`
-        <span class="text-green-400">🌟 Lightning AI Python Terminal Ready</span><br>
-        <span class="text-blue-400">Python interpreter session started with persistent state.</span><br>
-        <span class="text-blue-400">Available objects: studio, Machine, os, sys, time, datetime, json, requests</span><br>
-        <span class="text-blue-400">Type Python commands below. Variables persist between executions.</span><br>
-        <span class="text-green-400">========================================</span><br><br>
-    `);
+// Create a new cell
+function createCell(code = '', cellId = null) {
+    if (!cellId) {
+        cellId = `cell_${++cellCounter}`;
+    }
+    
+    const cellHtml = `
+        <div class="cell card rounded-lg shadow-lg p-4" data-cell-id="${cellId}">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm font-mono text-gray-400">In [${cellCounter}]:</span>
+                    <span class="cell-status text-xs px-2 py-1 rounded bg-gray-700 text-gray-300">Ready</span>
+                </div>
+                <div class="flex space-x-2">
+                    <button onclick="runCell('${cellId}')" class="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm font-semibold">
+                        <i class="fas fa-play mr-1"></i>Run
+                    </button>
+                    <button onclick="deleteCell('${cellId}')" class="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm font-semibold">
+                        <i class="fas fa-trash mr-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <textarea class="cell-input w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-green-400 font-mono text-sm resize-none" 
+                          placeholder="Enter command to run on remote studio..."
+                          rows="3"
+                          onkeydown="handleCellKeyDown(event, '${cellId}')">${code}</textarea>
+            </div>
+            
+            <div class="cell-output hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-mono text-gray-400">Out [${cellCounter}]:</span>
+                    <span class="execution-time text-xs text-gray-500"></span>
+                </div>
+                <div class="output-content bg-black rounded-lg p-3 font-mono text-sm text-white whitespace-pre-wrap"></div>
+            </div>
+        </div>
+    `;
+    
+    return cellHtml;
 }
 
-function runPreset(command) {
-    commandInput.value = command.replace(/\\n/g, '\n');
-    runCommand();
+// Add a new cell
+function addNewCell() {
+    const container = document.getElementById('notebookContainer');
+    const cellHtml = createCell();
+    container.insertAdjacentHTML('beforeend', cellHtml);
+    
+    // Focus on the new cell's textarea
+    const newCell = container.lastElementChild;
+    const textarea = newCell.querySelector('.cell-input');
+    textarea.focus();
 }
 
-async function runCommand() {
-    const command = commandInput.value.trim();
+// Add cell with predefined code
+function addCellWithCode(code) {
+    const container = document.getElementById('notebookContainer');
+    const cellHtml = createCell(code);
+    container.insertAdjacentHTML('beforeend', cellHtml);
+    
+    // Auto-run the cell
+    const newCell = container.lastElementChild;
+    const cellId = newCell.getAttribute('data-cell-id');
+    setTimeout(() => runCell(cellId), 100);
+}
+
+// Run a cell
+async function runCell(cellId) {
+    const cell = document.querySelector(`[data-cell-id="${cellId}"]`);
+    const textarea = cell.querySelector('.cell-input');
+    const statusElement = cell.querySelector('.cell-status');
+    const outputDiv = cell.querySelector('.cell-output');
+    const outputContent = cell.querySelector('.output-content');
+    const timeElement = cell.querySelector('.execution-time');
+    
+    const command = textarea.value.trim();
     if (!command) return;
     
-    // Display the command
-    appendToTerminal(`<span class="text-green-400">&gt;&gt;&gt; </span><span class="text-white">${command.replace(/\n/g, '<br>... ')}</span><br>`);
+    // Update status
+    statusElement.textContent = 'Running...';
+    statusElement.className = 'cell-status text-xs px-2 py-1 rounded bg-yellow-600 text-white';
     
-    // Clear input and reset height
-    commandInput.value = '';
-    commandInput.style.height = 'auto';
+    const startTime = Date.now();
     
     try {
-        const response = await fetch('/api/terminal/python', {
+        const response = await fetch('/files/run-remote-command', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: command })
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                command: command,
+                timeout: 300
+            })
         });
         
         const data = await response.json();
+        const executionTime = Date.now() - startTime;
+        
+        // Show output
+        outputDiv.classList.remove('hidden');
         
         if (data.success) {
-            let className = data.type === 'expression' ? 'text-yellow-400' : 'text-blue-400';
-            appendToTerminal(`<span class="${className}">${escapeHtml(data.result)}</span><br>`);
-        } else {
-            appendToTerminal(`<span class="text-red-400">Error: ${escapeHtml(data.error)}</span><br>`);
-            if (data.traceback) {
-                appendToTerminal(`<pre class="text-red-300 text-xs whitespace-pre-wrap">${escapeHtml(data.traceback)}</pre>`);
+            statusElement.textContent = 'Completed';
+            statusElement.className = 'cell-status text-xs px-2 py-1 rounded bg-green-600 text-white';
+            
+            let output = '';
+            if (data.stdout) {
+                output += data.stdout;
             }
-        }
-    } catch (err) {
-        appendToTerminal(`<span class="text-red-400">Fetch Error: ${escapeHtml(err.toString())}</span><br>`);
-    }
-    
-    appendToTerminal('<br>');
-}
-
-async function resetInterpreter() {
-    if (!confirm('Are you sure you want to reset the Python session? All variables will be lost.')) {
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/terminal/reset', { method: 'POST' });
-        const data = await response.json();
-        
-        if (data.success) {
-            clearTerminal();
-            initialMessage();
-            appendToTerminal(`<span class="text-green-400">${escapeHtml(data.message)}</span><br><br>`);
-            showNotification('Python session reset successfully', 'success');
+            if (data.stderr) {
+                output += (output ? '\n' : '') + '--- STDERR ---\n' + data.stderr;
+            }
+            
+            outputContent.textContent = output || '(No output)';
+            outputContent.className = 'output-content bg-black rounded-lg p-3 font-mono text-sm text-green-400 whitespace-pre-wrap';
         } else {
-            appendToTerminal(`<span class="text-red-400">Error resetting session</span><br>`);
+            statusElement.textContent = 'Error';
+            statusElement.className = 'cell-status text-xs px-2 py-1 rounded bg-red-600 text-white';
+            
+            outputContent.textContent = data.error || 'Unknown error occurred';
+            outputContent.className = 'output-content bg-black rounded-lg p-3 font-mono text-sm text-red-400 whitespace-pre-wrap';
         }
-    } catch (err) {
-        appendToTerminal(`<span class="text-red-400">Error resetting session: ${escapeHtml(err.toString())}</span><br>`);
+        
+        timeElement.textContent = `Executed in ${executionTime}ms`;
+        
+    } catch (error) {
+        statusElement.textContent = 'Network Error';
+        statusElement.className = 'cell-status text-xs px-2 py-1 rounded bg-red-600 text-white';
+        
+        outputDiv.classList.remove('hidden');
+        outputContent.textContent = `Network Error: ${error.message}`;
+        outputContent.className = 'output-content bg-black rounded-lg p-3 font-mono text-sm text-red-400 whitespace-pre-wrap';
+        
+        timeElement.textContent = 'Failed';
     }
 }
 
-function clearTerminal() {
-    terminal.innerHTML = '';
+// Delete a cell
+function deleteCell(cellId) {
+    const cell = document.querySelector(`[data-cell-id="${cellId}"]`);
+    if (cell) {
+        cell.remove();
+    }
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+// Clear all cells
+function clearAllCells() {
+    const container = document.getElementById('notebookContainer');
+    container.innerHTML = '';
+    cellCounter = 0;
+    addNewCell(); // Add one empty cell
 }
 
-function handleKeyDown(event) {
-    // Auto-resize textarea
-    this.style.height = 'auto';
-    this.style.height = (this.scrollHeight) + 'px';
-    
-    // Execute on Enter (but not Shift+Enter)
-    if (event.key === 'Enter' && !event.shiftKey) {
+// Handle keyboard shortcuts in cells
+function handleCellKeyDown(event, cellId) {
+    if (event.ctrlKey && event.key === 'Enter') {
+        // Ctrl+Enter: Run cell
         event.preventDefault();
-        runCommand();
+        runCell(cellId);
+    } else if (event.shiftKey && event.key === 'Enter') {
+        // Shift+Enter: Run cell and add new cell
+        event.preventDefault();
+        runCell(cellId);
+        setTimeout(() => addNewCell(), 100);
     }
+    
+    // Auto-resize textarea
+    setTimeout(() => {
+        const textarea = event.target;
+        textarea.style.height = 'auto';
+        textarea.style.height = textarea.scrollHeight + 'px';
+    }, 0);
 }
-
-// Event listeners
-commandInput.addEventListener('keydown', handleKeyDown);
-commandInput.addEventListener('input', handleKeyDown);
 
 // Initialize
-initialMessage();
+document.addEventListener('DOMContentLoaded', function() {
+    // Check studio status immediately and then every 30 seconds
+    checkStudioStatus();
+    studioStatusInterval = setInterval(checkStudioStatus, 30000);
+    
+    // Add initial cell
+    addNewCell();
+});
 
-// Focus on input
-commandInput.focus();
+// Cleanup interval when page unloads
+window.addEventListener('beforeunload', function() {
+    if (studioStatusInterval) {
+        clearInterval(studioStatusInterval);
+    }
+});
 </script>
 
 <style>
@@ -217,6 +330,7 @@ commandInput.focus();
     color: #10b981;
     border: 1px solid #6b7280;
     padding: 8px 12px;
+    margin: 4px;
     border-radius: 6px;
     cursor: pointer;
     font-family: 'Courier New', monospace;
@@ -229,26 +343,125 @@ commandInput.focus();
     border-color: #10b981;
 }
 
-.prompt {
-    font-family: 'Courier New', monospace;
-}
-
-#terminal {
-    color: #10b981;
-    background: #000000;
+.cell {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
     border: 1px solid #374151;
+    transition: all 0.3s ease;
 }
 
-#commandInput {
+.cell:hover {
+    border-color: #4b5563;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.cell-input {
     background: #1f2937;
     color: #10b981;
-    border: 1px solid #374151;
+    border: 1px solid #4b5563;
+    font-family: 'Courier New', monospace;
+    min-height: 60px;
+    transition: all 0.2s;
 }
 
-#commandInput:focus {
+.cell-input:focus {
     outline: none;
     border-color: #10b981;
     box-shadow: 0 0 0 1px #10b981;
+    background: #111827;
+}
+
+.cell-output {
+    border-top: 1px solid #374151;
+    padding-top: 1rem;
+    margin-top: 1rem;
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.output-content {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #374151;
+    scrollbar-width: thin;
+    scrollbar-color: #4b5563 #1f2937;
+}
+
+.output-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.output-content::-webkit-scrollbar-track {
+    background: #1f2937;
+}
+
+.output-content::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 3px;
+}
+
+.cell-status {
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+kbd {
+    background: #374151;
+    border: 1px solid #6b7280;
+    border-radius: 3px;
+    padding: 2px 4px;
+    font-size: 0.75rem;
+    font-family: 'Courier New', monospace;
+}
+
+/* Status indicator animations */
+.bg-yellow-600 {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Cell numbering styles */
+.cell .text-gray-400 {
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+}
+
+/* Button hover effects */
+.cell button {
+    transition: all 0.2s;
+}
+
+.cell button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .cell {
+        margin: 0 -1rem;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
+    
+    .cell .flex {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+    
+    .cell .flex > div {
+        justify-content: space-between;
+    }
 }
 </style>
 {% endblock %}
