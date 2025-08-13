@@ -182,7 +182,7 @@ class FileService:
             # Step 3: Execute command on remote studio
             try:
                 debug_print(f"Executing command on remote studio: {command}")
-                result = self.studio.run(command, timeout=timeout)
+                result = self.studio.run(command)
                 
                 end_time = time.time()
                 execution_time = end_time - start_time
@@ -411,7 +411,7 @@ class FileService:
             start_time = time.time()
             
             # Execute command on remote studio
-            result = self.studio.run(command, timeout=timeout)
+            result = self.studio.run(command)
             
             end_time = time.time()
             execution_time = end_time - start_time
