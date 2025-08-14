@@ -520,8 +520,17 @@ function toggleRestartMethod() {
 }
 
 // Event listeners for auto-restart
-document.getElementById('autoRestartEnabled').addEventListener('change', toggleAutoRestartConfig);
-document.getElementById('restartMethod').addEventListener('change', toggleRestartMethod);
+document.addEventListener('DOMContentLoaded', function() {
+    const autoRestartEnabled = document.getElementById('autoRestartEnabled');
+    const restartMethod = document.getElementById('restartMethod');
+    
+    if (autoRestartEnabled) {
+        autoRestartEnabled.addEventListener('change', toggleAutoRestartConfig);
+    }
+    if (restartMethod) {
+        restartMethod.addEventListener('change', toggleRestartMethod);
+    }
+});
 
 // Load auto-restart data
 loadAutoRestartConfig();

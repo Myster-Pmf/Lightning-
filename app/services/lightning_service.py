@@ -45,7 +45,7 @@ class LightningService:
             return "error", error_msg
     
     def get_uptime(self):
-        """Get studio uptime using uptime -p command"""
+        """Get studio uptime using uptime -p command - simple method like terminal"""
         try:
             if not self.studio:
                 return None, "Studio not initialized"
@@ -54,34 +54,14 @@ class LightningService:
             if status != 'running':
                 return None, "Studio is not running"
             
-            # Try different approaches to get uptime
-            try:
-                # Method 1: Direct studio.run
-                result = self.studio.run("uptime -p")
-                if result and hasattr(result, 'strip'):
-                    return result.strip(), None
-                
-                # Method 2: Try with shell=True
-                import subprocess
-                result = subprocess.run(
-                    ["lightning", "studio", "run", self.studio.name, "uptime", "-p"],
-                    capture_output=True, text=True, timeout=10
-                )
-                if result.returncode == 0:
-                    return result.stdout.strip(), None
-                
-                # Method 3: Simple uptime without -p
-                result = self.studio.run("uptime")
-                if result and hasattr(result, 'strip'):
-                    return result.strip(), None
-                    
-                return None, "Could not execute uptime command"
-                
-            except subprocess.TimeoutExpired:
-                return None, "Uptime command timed out"
-            except Exception as cmd_error:
-                debug_print(f"Command execution error: {cmd_error}")
-                return None, f"Command error: {str(cmd_error)}"
+            # Use the same method as terminal - direct studio.run
+            result = self.studio.run("uptime -p")
+            if result:
+                uptime_output = str(result).strip()
+                if uptime_output and not uptime_output.startswith('Error'):
+                    return uptime_output, None
+            
+            return None, "Uptime command failed"
                 
         except Exception as e:
             error_msg = str(e)
