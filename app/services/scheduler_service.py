@@ -209,8 +209,8 @@ class SchedulerService:
                 debug_print(f"Error in scheduler loop: {e}")
                 log_event("scheduler_error", f"Scheduler loop error: {e}", "error")
             
-            # Check every minute
-            time.sleep(60)
+            # Check every 5 minutes
+            time.sleep(300)
     
     def _execute_schedule(self, schedule):
         """Execute a scheduled task"""

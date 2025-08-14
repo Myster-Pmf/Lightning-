@@ -432,7 +432,7 @@ DASHBOARD_HTML = """
         });
 
         setTimeRange('1h'); // Default view
-        setInterval(() => fetchData(currentRange), 60000);
+        setInterval(() => fetchData(currentRange), 300000);
     </script>
 </body>
 </html>

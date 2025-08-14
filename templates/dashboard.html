@@ -292,6 +292,8 @@ async function fetchData(range) {
 function updateStatus(liveStatus) {
     const statusValue = document.getElementById('statusValue');
     const lastUpdated = document.getElementById('lastUpdated');
+    const restartBtn = document.getElementById('restartStudioBtn');
+    const quickRestartBtn = document.getElementById('restartBtn');
     
     statusValue.textContent = liveStatus.status;
     lastUpdated.textContent = new Date().toLocaleString();
@@ -307,6 +309,23 @@ function updateStatus(liveStatus) {
     } else {
         statusValue.className += 'text-gray-400';
     }
+    
+    // Enable/disable restart button based on status
+    if (liveStatus.status === 'stopped') {
+        restartBtn.disabled = true;
+        quickRestartBtn.disabled = true;
+        restartBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        quickRestartBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        restartBtn.title = 'Cannot restart when studio is stopped';
+        quickRestartBtn.title = 'Cannot restart when studio is stopped';
+    } else {
+        restartBtn.disabled = false;
+        quickRestartBtn.disabled = false;
+        restartBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        quickRestartBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        restartBtn.title = '';
+        quickRestartBtn.title = '';
+    }
 }
 
 function setTimeRange(range) {
@@ -319,8 +338,14 @@ function setTimeRange(range) {
 // Studio control functions
 async function startStudio() {
     const machineType = document.getElementById('machineTypeSelect').value;
+    const startBtn = document.getElementById('startBtn');
+    const quickStartBtn = document.getElementById('quickStartBtn');
     
-    showModal("Starting Studio...", "Sending start command...", [], true);
+    // Disable buttons and show starting state
+    startBtn.disabled = true;
+    quickStartBtn.disabled = true;
+    startBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Starting...';
+    quickStartBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Starting...';
     
     try {
         const response = await fetch('/api/start', {
@@ -332,38 +357,83 @@ async function startStudio() {
         const data = await response.json();
         
         if (data.start_id) {
-            progressInterval = setInterval(() => checkProgress(data.start_id), 3000);
+            let seconds = 0;
+            progressInterval = setInterval(() => {
+                seconds++;
+                startBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Starting (${seconds}s)`;
+                quickStartBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Starting (${seconds}s)`;
+                checkProgress(data.start_id);
+            }, 1000);
         } else {
+            // Reset buttons on error
+            resetStartButtons();
             const actions = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
             showModal("❌ Error!", data.error || "An unknown error occurred.", actions);
         }
     } catch (error) {
+        resetStartButtons();
         const actions = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
         showModal("❌ Error!", "Failed to start studio", actions);
     }
+}
+
+function resetStartButtons() {
+    const startBtn = document.getElementById('startBtn');
+    const quickStartBtn = document.getElementById('quickStartBtn');
+    startBtn.disabled = false;
+    quickStartBtn.disabled = false;
+    startBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Start Studio';
+    quickStartBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Quick Start';
 }
 
 async function stopStudio() {
     const actions = [
         { text: 'Cancel', class: 'bg-gray-600 hover:bg-gray-700 px-6 py-2 rounded-lg font-semibold mr-4', onclick: closeModal },
         { text: 'Yes, Stop It', class: 'bg-red-600 hover:bg-red-700 px-6 py-2 rounded-lg font-semibold', onclick: async () => {
-            showModal("Stopping Studio...", "Sending stop command...", [], true);
+            closeModal();
+            const stopBtn = document.getElementById('stopBtn');
+            const quickStopBtn = document.getElementById('quickStopBtn');
+            
+            // Disable buttons and show stopping state with countdown
+            stopBtn.disabled = true;
+            quickStopBtn.disabled = true;
+            
+            let stopSeconds = 0;
+            const stopInterval = setInterval(() => {
+                stopSeconds++;
+                stopBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Stopping (${stopSeconds}s)`;
+                quickStopBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Stopping (${stopSeconds}s)`;
+            }, 1000);
             
             try {
                 const response = await fetch('/api/stop', { method: 'POST' });
                 const data = await response.json();
-                const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
+                
+                clearInterval(stopInterval);
                 
                 if(data.success) {
-                    showModal("✅ Command Sent", "Stop command sent successfully.", closeAction);
+                    showModal("✅ Command Sent", "Stop command sent successfully.", [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }]);
                 } else {
-                    showModal("❌ Error", `Failed to stop: ${data.error}`, closeAction);
+                    showModal("❌ Error", `Failed to stop: ${data.error}`, [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }]);
                 }
+                
+                // Reset buttons after a delay
+                setTimeout(() => {
+                    stopBtn.disabled = false;
+                    quickStopBtn.disabled = false;
+                    stopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Stop Studio';
+                    quickStopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Quick Stop';
+                }, 3000);
                 
                 fetchData(currentRange);
             } catch (error) {
-                const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
-                showModal("❌ Error", "Failed to stop studio", closeAction);
+                clearInterval(stopInterval);
+                showModal("❌ Error", "Failed to stop studio", [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }]);
+                // Reset buttons on error
+                stopBtn.disabled = false;
+                quickStopBtn.disabled = false;
+                stopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Stop Studio';
+                quickStopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Quick Stop';
             }
         }}
     ];
@@ -373,8 +443,19 @@ async function stopStudio() {
 
 async function restartStudio() {
     const machineType = document.getElementById('machineTypeSelect').value;
+    const restartBtn = document.getElementById('restartStudioBtn');
+    const quickRestartBtn = document.getElementById('restartBtn');
     
-    showModal("Restarting Studio...", "Sending restart command...", [], true);
+    // Disable buttons and show restarting state with countdown
+    restartBtn.disabled = true;
+    quickRestartBtn.disabled = true;
+    
+    let restartSeconds = 0;
+    const restartInterval = setInterval(() => {
+        restartSeconds++;
+        restartBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Restarting (${restartSeconds}s)`;
+        quickRestartBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Restarting (${restartSeconds}s)`;
+    }, 1000);
     
     try {
         const response = await fetch('/api/restart', {
@@ -384,6 +465,8 @@ async function restartStudio() {
         });
         
         const data = await response.json();
+        clearInterval(restartInterval);
+        
         const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
         
         if(data.success) {
@@ -392,10 +475,25 @@ async function restartStudio() {
             showModal("❌ Error", `Failed to restart: ${data.error}`, closeAction);
         }
         
+        // Reset buttons after a delay
+        setTimeout(() => {
+            restartBtn.disabled = false;
+            quickRestartBtn.disabled = false;
+            restartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart Studio';
+            quickRestartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart';
+        }, 3000);
+        
         fetchData(currentRange);
     } catch (error) {
+        clearInterval(restartInterval);
         const closeAction = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
         showModal("❌ Error", "Failed to restart studio", closeAction);
+        
+        // Reset buttons on error
+        restartBtn.disabled = false;
+        quickRestartBtn.disabled = false;
+        restartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart Studio';
+        quickRestartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart';
     }
 }
 
@@ -404,22 +502,25 @@ async function checkProgress(startId) {
         const response = await fetch(`/api/start/progress/${startId}`);
         const data = await response.json();
         
-        if (data.status === 'starting') {
-            modalMessage.textContent = `Please wait... (${Math.round(data.elapsed_seconds)}s elapsed)`;
-        } else if (data.status === 'completed') {
+        if (data.status === 'completed') {
             clearInterval(progressInterval);
+            resetStartButtons();
+            
             const actions = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
             
             if (data.success) {
-                showModal("✅ Success!", "Studio start process completed.", actions);
+                showModal("✅ Success!", "Studio started successfully!", actions);
             } else {
                 showModal("❌ Error!", `Failed to start: ${data.error}`, actions);
             }
             
             fetchData(currentRange);
         }
+        // For 'starting' status, we just continue showing the countdown in the button
     } catch (error) {
         console.error('Error checking progress:', error);
+        clearInterval(progressInterval);
+        resetStartButtons();
     }
 }
 
@@ -433,7 +534,7 @@ document.getElementById('restartBtn').addEventListener('click', restartStudio);
 
 // Initialize
 setTimeRange('1h');
-setInterval(() => fetchData(currentRange), 60000);
+setInterval(() => fetchData(currentRange), 300000);
 
 // Load quick stats
 async function loadQuickStats() {
