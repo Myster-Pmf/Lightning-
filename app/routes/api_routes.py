@@ -30,7 +30,7 @@ def get_status():
         # Get uptime if studio is running using the proper service method
         uptime = None
         uptime_error = None
-        if status == 'running':
+        if 'running' in status.lower():
             uptime, uptime_error = lightning_service.get_uptime()
         
         return jsonify({
@@ -79,7 +79,7 @@ def get_logs_api():
         # Get uptime if studio is running using the proper service method
         uptime = None
         uptime_error = None
-        if current_status == 'running':
+        if 'running' in current_status.lower():
             uptime, uptime_error = lightning_service.get_uptime()
         
         return jsonify({

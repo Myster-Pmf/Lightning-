@@ -51,7 +51,10 @@ class LightningService:
                 return None, "Studio not initialized"
             
             status = str(self.studio.status)
-            if status != 'running':
+            debug_print(f"Raw studio status: '{status}'")
+            
+            # Handle both 'running' and 'Status.Running' formats
+            if 'running' not in status.lower():
                 return None, f"Studio is not running (status: {status})"
             
             # Use the same method as terminal - direct studio.run

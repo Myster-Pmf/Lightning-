@@ -478,15 +478,18 @@ function updateStatus(liveStatus) {
     // Update uptime with better debugging
     console.log('Status:', liveStatus.status, 'Uptime:', liveStatus.uptime, 'Uptime Error:', liveStatus.uptime_error);
     
-    if (liveStatus.status === 'running' && liveStatus.uptime) {
+    const isRunning = liveStatus.status && liveStatus.status.toLowerCase().includes('running');
+    console.log('Is running check:', isRunning);
+    
+    if (isRunning && liveStatus.uptime) {
         uptimeValue.textContent = liveStatus.uptime;
         uptimeValue.className = 'text-sm text-green-400';
         console.log('Uptime displayed:', liveStatus.uptime);
-    } else if (liveStatus.status === 'running' && liveStatus.uptime_error) {
+    } else if (isRunning && liveStatus.uptime_error) {
         uptimeValue.textContent = `Error: ${liveStatus.uptime_error}`;
         uptimeValue.className = 'text-sm text-yellow-400';
         console.log('Uptime error displayed:', liveStatus.uptime_error);
-    } else if (liveStatus.status === 'running') {
+    } else if (isRunning) {
         uptimeValue.textContent = 'Getting uptime...';
         uptimeValue.className = 'text-sm text-blue-400';
         console.log('Studio running but no uptime data');
