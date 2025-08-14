@@ -124,3 +124,92 @@ def list_schedules():
             "success": False,
             "error": str(e)
         }), 500
+
+# Auto-restart management routes
+@scheduler_bp.route('/auto-restart/config', methods=['GET'])
+def get_auto_restart_config():
+    """Get auto-restart configuration"""
+    try:
+        scheduler_service = current_app.config['SCHEDULER_SERVICE']
+        config = scheduler_service.get_auto_restart_config()
+        
+        return jsonify({
+            "success": True,
+            "config": config
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@scheduler_bp.route('/auto-restart/config', methods=['POST'])
+def update_auto_restart_config():
+    """Update auto-restart configuration"""
+    try:
+        data = request.get_json()
+        scheduler_service = current_app.config['SCHEDULER_SERVICE']
+        scheduler_service.update_auto_restart_config(data)
+        
+        return jsonify({
+            "success": True,
+            "message": "Auto-restart configuration updated"
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@scheduler_bp.route('/auto-restart/history')
+def get_auto_restart_history():
+    """Get auto-restart history"""
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        scheduler_service = current_app.config['SCHEDULER_SERVICE']
+        history = scheduler_service.get_auto_restart_history(limit)
+        
+        return jsonify({
+            "success": True,
+            "history": history
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@scheduler_bp.route('/timezones')
+def get_timezones():
+    """Get list of available timezones"""
+    try:
+        import pytz
+        # Get common timezones
+        common_timezones = [
+            'UTC',
+            'US/Eastern',
+            'US/Central', 
+            'US/Mountain',
+            'US/Pacific',
+            'Europe/London',
+            'Europe/Paris',
+            'Europe/Berlin',
+            'Asia/Tokyo',
+            'Asia/Shanghai',
+            'Asia/Kolkata',
+            'Australia/Sydney'
+        ]
+        
+        return jsonify({
+            "success": True,
+            "timezones": common_timezones
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500

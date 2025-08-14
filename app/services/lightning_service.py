@@ -44,6 +44,30 @@ class LightningService:
             debug_print(f"Error getting studio status: {error_msg}")
             return "error", error_msg
     
+    def get_uptime(self):
+        """Get studio uptime using uptime -p command"""
+        try:
+            if not self.studio:
+                return None, "Studio not initialized"
+            
+            status = str(self.studio.status)
+            if status != 'running':
+                return None, "Studio is not running"
+            
+            # Execute uptime -p command on the remote studio
+            result = self.studio.run("uptime -p", capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                uptime_output = result.stdout.strip()
+                return uptime_output, None
+            else:
+                return None, f"Uptime command failed: {result.stderr}"
+                
+        except Exception as e:
+            error_msg = str(e)
+            debug_print(f"Error getting studio uptime: {error_msg}")
+            return None, error_msg
+    
     def start_studio(self, machine_type=None):
         """Start the studio with specified machine type"""
         start_time = datetime.now()
@@ -165,7 +189,7 @@ class LightningService:
                     debug_print("Studio object is None, attempting to reinitialize...")
                     self._initialize_studio()
                     if not self.studio:
-                        time.sleep(60)
+                        time.sleep(300)
                         continue
                 
                 # Get current status
@@ -194,5 +218,5 @@ class LightningService:
                 debug_print(f"CRITICAL: {error_msg}\n{traceback.format_exc()}")
                 log_event("monitor_error", error_msg, "error")
             
-            # Wait before next check
-            time.sleep(60)
+            # Wait before next check (5 minutes)
+            time.sleep(300)

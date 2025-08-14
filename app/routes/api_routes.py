@@ -16,9 +16,17 @@ def get_status():
     lightning_service = current_app.config['LIGHTNING_SERVICE']
     status, error = lightning_service.get_status()
     
+    # Get uptime if studio is running
+    uptime = None
+    uptime_error = None
+    if status == 'running':
+        uptime, uptime_error = lightning_service.get_uptime()
+    
     return jsonify({
         'status': status,
         'error': error,
+        'uptime': uptime,
+        'uptime_error': uptime_error,
         'timestamp': datetime.now().isoformat()
     })
 
@@ -34,11 +42,19 @@ def get_logs_api():
     lightning_service = current_app.config['LIGHTNING_SERVICE']
     current_status, error = lightning_service.get_status()
     
+    # Get uptime if studio is running
+    uptime = None
+    uptime_error = None
+    if current_status == 'running':
+        uptime, uptime_error = lightning_service.get_uptime()
+    
     return jsonify({
         'logs': logs,
         'live_status': {
             'status': current_status,
             'error': error,
+            'uptime': uptime,
+            'uptime_error': uptime_error,
             'timestamp': datetime.now().isoformat()
         }
     })

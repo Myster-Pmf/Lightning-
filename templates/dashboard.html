@@ -74,6 +74,10 @@
                     <span id="statusValue" class="font-semibold">Loading...</span>
                 </div>
                 <div class="flex items-center justify-between">
+                    <span class="text-gray-400">Uptime:</span>
+                    <span id="uptimeValue" class="text-sm">--</span>
+                </div>
+                <div class="flex items-center justify-between">
                     <span class="text-gray-400">Last Updated:</span>
                     <span id="lastUpdated" class="text-sm">--</span>
                 </div>
@@ -454,6 +458,7 @@ async function fetchData(range) {
 
 function updateStatus(liveStatus) {
     const statusValue = document.getElementById('statusValue');
+    const uptimeValue = document.getElementById('uptimeValue');
     const lastUpdated = document.getElementById('lastUpdated');
     
     // Get all buttons
@@ -466,6 +471,18 @@ function updateStatus(liveStatus) {
     
     statusValue.textContent = liveStatus.status;
     lastUpdated.textContent = new Date().toLocaleString();
+    
+    // Update uptime
+    if (liveStatus.status === 'running' && liveStatus.uptime) {
+        uptimeValue.textContent = liveStatus.uptime;
+        uptimeValue.className = 'text-sm text-green-400';
+    } else if (liveStatus.status === 'running' && liveStatus.uptime_error) {
+        uptimeValue.textContent = 'Error getting uptime';
+        uptimeValue.className = 'text-sm text-yellow-400';
+    } else {
+        uptimeValue.textContent = '--';
+        uptimeValue.className = 'text-sm text-gray-400';
+    }
     
     // Update status class
     statusValue.className = 'font-semibold ';
@@ -865,6 +882,17 @@ setInterval(() => fetchData(currentRange), 300000);
 
 // Fetch initial data immediately
 fetchData('1h');
+
+// Also fetch status more frequently for uptime updates (every 30 seconds)
+setInterval(async () => {
+    try {
+        const response = await fetch('/api/status');
+        const data = await response.json();
+        updateStatus(data);
+    } catch (error) {
+        console.error('Failed to fetch status:', error);
+    }
+}, 30000);
 
 // Load quick stats
 async function loadQuickStats() {
