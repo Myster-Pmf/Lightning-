@@ -13,65 +13,97 @@ api_bp = Blueprint('api', __name__)
 @api_bp.route('/status')
 def get_status():
     """Get current studio status"""
-    lightning_service = current_app.config['LIGHTNING_SERVICE']
-    status, error = lightning_service.get_status()
-    
-    # Get uptime if studio is running - simple direct method
-    uptime = None
-    uptime_error = None
-    if status == 'running':
-        try:
-            uptime_result = lightning_service.studio.run("uptime -p")
-            if uptime_result:
-                uptime = str(uptime_result).strip()
-            else:
-                uptime_error = "No uptime result"
-        except Exception as e:
-            uptime_error = f"Uptime command failed: {str(e)}"
-    
-    return jsonify({
-        'status': status,
-        'error': error,
-        'uptime': uptime,
-        'uptime_error': uptime_error,
-        'timestamp': datetime.now().isoformat()
-    })
-
-@api_bp.route('/logs')
-def get_logs_api():
-    """Get logs for dashboard charts"""
-    range_arg = request.args.get('range', '1h')
-    hours = 1 if range_arg == '1h' else 24
-    
-    logs = get_logs(hours=hours, limit=2000)
-    
-    # Get current status
-    lightning_service = current_app.config['LIGHTNING_SERVICE']
-    current_status, error = lightning_service.get_status()
-    
-    # Get uptime if studio is running - simple direct method
-    uptime = None
-    uptime_error = None
-    if current_status == 'running':
-        try:
-            uptime_result = lightning_service.studio.run("uptime -p")
-            if uptime_result:
-                uptime = str(uptime_result).strip()
-            else:
-                uptime_error = "No uptime result"
-        except Exception as e:
-            uptime_error = f"Uptime command failed: {str(e)}"
-    
-    return jsonify({
-        'logs': logs,
-        'live_status': {
-            'status': current_status,
+    try:
+        lightning_service = current_app.config['LIGHTNING_SERVICE']
+        
+        if not lightning_service:
+            return jsonify({
+                'status': 'error',
+                'error': 'Lightning service not available',
+                'uptime': None,
+                'uptime_error': 'Service not initialized',
+                'timestamp': datetime.now().isoformat()
+            })
+        
+        status, error = lightning_service.get_status()
+        
+        # Get uptime if studio is running using the proper service method
+        uptime = None
+        uptime_error = None
+        if status == 'running':
+            uptime, uptime_error = lightning_service.get_uptime()
+        
+        return jsonify({
+            'status': status,
             'error': error,
             'uptime': uptime,
             'uptime_error': uptime_error,
             'timestamp': datetime.now().isoformat()
-        }
-    })
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': f'API error: {str(e)}',
+            'uptime': None,
+            'uptime_error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@api_bp.route('/logs')
+def get_logs_api():
+    """Get logs for dashboard charts"""
+    try:
+        range_arg = request.args.get('range', '1h')
+        hours = 1 if range_arg == '1h' else 24
+        
+        logs = get_logs(hours=hours, limit=2000)
+        
+        # Get current status
+        lightning_service = current_app.config['LIGHTNING_SERVICE']
+        
+        if not lightning_service:
+            return jsonify({
+                'logs': logs,
+                'live_status': {
+                    'status': 'error',
+                    'error': 'Lightning service not available',
+                    'uptime': None,
+                    'uptime_error': 'Service not initialized',
+                    'timestamp': datetime.now().isoformat()
+                }
+            })
+        
+        current_status, error = lightning_service.get_status()
+        
+        # Get uptime if studio is running using the proper service method
+        uptime = None
+        uptime_error = None
+        if current_status == 'running':
+            uptime, uptime_error = lightning_service.get_uptime()
+        
+        return jsonify({
+            'logs': logs,
+            'live_status': {
+                'status': current_status,
+                'error': error,
+                'uptime': uptime,
+                'uptime_error': uptime_error,
+                'timestamp': datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'logs': [],
+            'live_status': {
+                'status': 'error',
+                'error': f'API error: {str(e)}',
+                'uptime': None,
+                'uptime_error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }
+        }), 500
 
 @api_bp.route('/start', methods=['POST'])
 def start_studio():

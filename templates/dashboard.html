@@ -17,14 +17,14 @@
         </div>
         
         <!-- Quick Actions -->
-        <div class="flex flex-wrap gap-3 mt-4 md:mt-0">
-            <button id="quickStartBtn" class="btn-primary px-4 py-2 rounded-lg font-semibold flex items-center">
+        <div class="flex flex-col sm:flex-row flex-wrap gap-3 mt-4 md:mt-0 w-full sm:w-auto">
+            <button id="quickStartBtn" class="btn-primary btn-touch px-4 py-2 rounded-lg font-semibold flex items-center justify-center">
                 <i class="fas fa-play mr-2"></i>Quick Start
             </button>
-            <button id="quickStopBtn" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold flex items-center">
+            <button id="quickStopBtn" class="bg-red-600 hover:bg-red-700 btn-touch px-4 py-2 rounded-lg font-semibold flex items-center justify-center">
                 <i class="fas fa-stop mr-2"></i>Quick Stop
             </button>
-            <button id="restartBtn" class="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded-lg font-semibold flex items-center">
+            <button id="restartBtn" class="bg-yellow-600 hover:bg-yellow-700 btn-touch px-4 py-2 rounded-lg font-semibold flex items-center justify-center">
                 <i class="fas fa-redo mr-2"></i>Restart
             </button>
         </div>
@@ -50,7 +50,7 @@
         </div>
         
         <!-- Control Buttons -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <button id="startBtn" class="bg-green-600 hover:bg-green-700 px-6 py-3 rounded-lg font-semibold transition-all transform hover:scale-105 flex items-center justify-center">
                 <i class="fas fa-play mr-2"></i>Start Studio
             </button>
@@ -64,7 +64,7 @@
     </div>
 
     <!-- Status and Activity -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         <!-- Current Status -->
         <div class="card rounded-lg shadow-lg p-6">
             <h3 class="text-lg font-semibold mb-4">Current Status</h3>
@@ -461,6 +461,9 @@ function updateStatus(liveStatus) {
     const uptimeValue = document.getElementById('uptimeValue');
     const lastUpdated = document.getElementById('lastUpdated');
     
+    // Debug logging
+    console.log('updateStatus called with:', liveStatus);
+    
     // Get all buttons
     const startBtn = document.getElementById('startBtn');
     const quickStartBtn = document.getElementById('quickStartBtn');
@@ -472,16 +475,25 @@ function updateStatus(liveStatus) {
     statusValue.textContent = liveStatus.status;
     lastUpdated.textContent = new Date().toLocaleString();
     
-    // Update uptime
+    // Update uptime with better debugging
+    console.log('Status:', liveStatus.status, 'Uptime:', liveStatus.uptime, 'Uptime Error:', liveStatus.uptime_error);
+    
     if (liveStatus.status === 'running' && liveStatus.uptime) {
         uptimeValue.textContent = liveStatus.uptime;
         uptimeValue.className = 'text-sm text-green-400';
+        console.log('Uptime displayed:', liveStatus.uptime);
     } else if (liveStatus.status === 'running' && liveStatus.uptime_error) {
-        uptimeValue.textContent = 'Error getting uptime';
+        uptimeValue.textContent = `Error: ${liveStatus.uptime_error}`;
         uptimeValue.className = 'text-sm text-yellow-400';
+        console.log('Uptime error displayed:', liveStatus.uptime_error);
+    } else if (liveStatus.status === 'running') {
+        uptimeValue.textContent = 'Getting uptime...';
+        uptimeValue.className = 'text-sm text-blue-400';
+        console.log('Studio running but no uptime data');
     } else {
         uptimeValue.textContent = '--';
         uptimeValue.className = 'text-sm text-gray-400';
+        console.log('Studio not running, uptime set to --');
     }
     
     // Update status class

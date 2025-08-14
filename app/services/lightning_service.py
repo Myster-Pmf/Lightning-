@@ -52,20 +52,30 @@ class LightningService:
             
             status = str(self.studio.status)
             if status != 'running':
-                return None, "Studio is not running"
+                return None, f"Studio is not running (status: {status})"
             
             # Use the same method as terminal - direct studio.run
+            debug_print("Attempting to get uptime using studio.run('uptime -p')")
             result = self.studio.run("uptime -p")
+            
             if result:
                 uptime_output = str(result).strip()
-                if uptime_output and not uptime_output.startswith('Error'):
-                    return uptime_output, None
-            
-            return None, "Uptime command failed"
+                debug_print(f"Uptime command result: '{uptime_output}'")
+                
+                if uptime_output and not uptime_output.lower().startswith('error'):
+                    # Clean up the output - remove any extra whitespace or newlines
+                    cleaned_uptime = ' '.join(uptime_output.split())
+                    return cleaned_uptime, None
+                else:
+                    return None, f"Invalid uptime output: {uptime_output}"
+            else:
+                debug_print("Uptime command returned None/empty result")
+                return None, "Uptime command returned no output"
                 
         except Exception as e:
             error_msg = str(e)
             debug_print(f"Error getting studio uptime: {error_msg}")
+            traceback.print_exc()
             return None, error_msg
     
     def start_studio(self, machine_type=None):

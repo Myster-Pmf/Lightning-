@@ -68,6 +68,64 @@
         .sidebar {
             background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
         }
+        
+        /* Mobile responsive improvements */
+        @media (max-width: 768px) {
+            .card {
+                margin: 0.5rem 0;
+                padding: 1rem;
+            }
+            
+            .grid {
+                grid-template-columns: 1fr !important;
+                gap: 1rem;
+            }
+            
+            .text-3xl { font-size: 1.5rem; }
+            .text-2xl { font-size: 1.25rem; }
+            .text-xl { font-size: 1.125rem; }
+            
+            .px-6 { padding-left: 1rem; padding-right: 1rem; }
+            .py-4 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+            
+            .space-x-4 > * + * { margin-left: 0.5rem; }
+            .space-y-4 > * + * { margin-top: 0.75rem; }
+        }
+        
+        @media (max-width: 640px) {
+            .container { padding: 0.5rem; }
+            .max-w-7xl { padding-left: 0.75rem; padding-right: 0.75rem; }
+            
+            .btn { 
+                padding: 0.5rem 1rem; 
+                font-size: 0.875rem;
+                width: 100%;
+                margin-bottom: 0.5rem;
+            }
+            
+            .flex-wrap { flex-wrap: wrap; }
+            .w-full-mobile { width: 100%; }
+        }
+        
+        /* Touch-friendly buttons */
+        .btn-touch {
+            min-height: 44px;
+            min-width: 44px;
+        }
+        
+        /* Responsive tables */
+        @media (max-width: 768px) {
+            .table-responsive {
+                display: block;
+                width: 100%;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            .table-responsive table {
+                min-width: 600px;
+            }
+        }
     </style>
     
     {% block extra_head %}{% endblock %}
@@ -79,12 +137,14 @@
             <div class="flex justify-between h-16">
                 <div class="flex items-center">
                     <div class="flex-shrink-0">
-                        <h1 class="text-xl font-bold text-white">
+                        <h1 class="text-lg md:text-xl font-bold text-white">
                             <i class="fas fa-bolt text-yellow-400"></i>
-                            Lightning AI Dashboard
+                            <span class="hidden sm:inline">Lightning AI Dashboard</span>
+                            <span class="sm:hidden">Lightning AI</span>
                         </h1>
                     </div>
-                    <div class="hidden md:block ml-10">
+                    <!-- Desktop Navigation -->
+                    <div class="hidden lg:block ml-10">
                         <div class="flex items-baseline space-x-4">
                             <a href="/" class="nav-link text-gray-300 hover:text-white px-3 py-2 rounded-md text-sm font-medium">
                                 <i class="fas fa-home mr-2"></i>Dashboard
@@ -108,12 +168,43 @@
                     </div>
                 </div>
                 
-                <!-- Status indicator -->
-                <div class="flex items-center">
+                <div class="flex items-center space-x-2">
+                    <!-- Status indicator -->
                     <div id="status-indicator" class="flex items-center space-x-2">
                         <span class="status-dot bg-gray-500" id="status-dot"></span>
-                        <span id="status-text" class="text-sm font-medium">Loading...</span>
+                        <span id="status-text" class="text-xs md:text-sm font-medium hidden sm:inline">Loading...</span>
                     </div>
+                    
+                    <!-- Mobile menu button -->
+                    <div class="lg:hidden">
+                        <button id="mobile-menu-button" type="button" class="text-gray-300 hover:text-white focus:outline-none focus:text-white p-2">
+                            <i class="fas fa-bars text-lg"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Mobile Navigation Menu -->
+            <div id="mobile-menu" class="lg:hidden hidden">
+                <div class="px-2 pt-2 pb-3 space-y-1 bg-gray-800 border-t border-gray-700">
+                    <a href="/" class="nav-link text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">
+                        <i class="fas fa-home mr-2"></i>Dashboard
+                    </a>
+                    <a href="/scheduler" class="nav-link text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">
+                        <i class="fas fa-clock mr-2"></i>Scheduler
+                    </a>
+                    <a href="/files" class="nav-link text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">
+                        <i class="fas fa-folder mr-2"></i>Files
+                    </a>
+                    <a href="/terminal" class="nav-link text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">
+                        <i class="fas fa-terminal mr-2"></i>Terminal
+                    </a>
+                    <a href="/logs" class="nav-link text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">
+                        <i class="fas fa-list mr-2"></i>Logs
+                    </a>
+                    <a href="/debug" class="nav-link text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">
+                        <i class="fas fa-bug mr-2"></i>Debug
+                    </a>
                 </div>
             </div>
         </div>
@@ -158,11 +249,47 @@
 
     <!-- Global JavaScript -->
     <script>
-        // Update timestamp
+        // Update timestamp and initialize mobile menu
         document.addEventListener('DOMContentLoaded', function() {
             const lastUpdated = document.getElementById('last-updated');
             if (lastUpdated) {
                 lastUpdated.textContent = new Date().toLocaleString();
+            }
+            
+            // Mobile menu functionality
+            const mobileMenuButton = document.getElementById('mobile-menu-button');
+            const mobileMenu = document.getElementById('mobile-menu');
+            
+            if (mobileMenuButton && mobileMenu) {
+                mobileMenuButton.addEventListener('click', function() {
+                    mobileMenu.classList.toggle('hidden');
+                    
+                    // Update button icon
+                    const icon = mobileMenuButton.querySelector('i');
+                    if (mobileMenu.classList.contains('hidden')) {
+                        icon.className = 'fas fa-bars text-lg';
+                    } else {
+                        icon.className = 'fas fa-times text-lg';
+                    }
+                });
+                
+                // Close mobile menu when clicking outside
+                document.addEventListener('click', function(event) {
+                    if (!mobileMenuButton.contains(event.target) && !mobileMenu.contains(event.target)) {
+                        mobileMenu.classList.add('hidden');
+                        const icon = mobileMenuButton.querySelector('i');
+                        icon.className = 'fas fa-bars text-lg';
+                    }
+                });
+                
+                // Close mobile menu when window is resized to desktop
+                window.addEventListener('resize', function() {
+                    if (window.innerWidth >= 1024) {
+                        mobileMenu.classList.add('hidden');
+                        const icon = mobileMenuButton.querySelector('i');
+                        icon.className = 'fas fa-bars text-lg';
+                    }
+                });
             }
         });
     </script>
