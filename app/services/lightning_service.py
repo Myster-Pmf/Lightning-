@@ -46,6 +46,7 @@ class LightningService:
     
     def start_studio(self, machine_type=None):
         """Start the studio with specified machine type"""
+        start_time = datetime.now()
         try:
             if not self.studio:
                 raise Exception("Studio not initialized")
@@ -54,34 +55,72 @@ class LightningService:
             if machine_type is None:
                 machine_type = Machine.CPU
             
-            log_event("studio_start_begin", f"Starting studio with {machine_type}", "event")
+            log_event("studio_start_begin", f"Starting studio with {machine_type}", "event", {
+                "machine_type": str(machine_type),
+                "start_time": start_time.isoformat()
+            })
             
             self.studio.start(machine_type)
             
-            log_event("studio_start_success", f"Studio started successfully with {machine_type}", "event")
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            
+            log_event("studio_start_success", f"Studio started successfully with {machine_type}", "event", {
+                "machine_type": str(machine_type),
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "duration_seconds": duration
+            })
             return True, "Studio start command sent successfully"
             
         except Exception as e:
             error_msg = str(e)
-            log_event("studio_start_error", f"Failed to start studio: {error_msg}", "error")
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            
+            log_event("studio_start_error", f"Failed to start studio: {error_msg}", "error", {
+                "machine_type": str(machine_type) if machine_type else "unknown",
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "duration_seconds": duration,
+                "error": error_msg
+            })
             return False, error_msg
     
     def stop_studio(self):
         """Stop the studio"""
+        start_time = datetime.now()
         try:
             if not self.studio:
                 raise Exception("Studio not initialized")
             
-            log_event("studio_stop_begin", "Stopping studio", "event")
+            log_event("studio_stop_begin", "Stopping studio", "event", {
+                "start_time": start_time.isoformat()
+            })
             
             self.studio.stop()
             
-            log_event("studio_stop_success", "Studio stop command sent successfully", "event")
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            
+            log_event("studio_stop_success", "Studio stop command sent successfully", "event", {
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "duration_seconds": duration
+            })
             return True, "Studio stop command sent successfully"
             
         except Exception as e:
             error_msg = str(e)
-            log_event("studio_stop_error", f"Failed to stop studio: {error_msg}", "error")
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            
+            log_event("studio_stop_error", f"Failed to stop studio: {error_msg}", "error", {
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "duration_seconds": duration,
+                "error": error_msg
+            })
             return False, error_msg
     
     def restart_studio(self, machine_type=None):

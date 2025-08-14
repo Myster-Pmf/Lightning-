@@ -191,7 +191,15 @@ function closeModal() {
     clearInterval(progressInterval);
 }
 
-// Chart functions
+// Enhanced Chart functions with activity lanes
+function getActivityType(log) {
+    const type = log.event_type;
+    if (type === 'status_check') return 'heartbeat';
+    if (type.includes('start') || type.includes('stop') || type.includes('restart')) return 'operations';
+    if (type.includes('error')) return 'errors';
+    return 'events';
+}
+
 function getStatusFromLog(log) {
     const type = log.event_type;
     if (type.includes('running') || type === 'start' || type === 'post_start' || 
@@ -209,48 +217,221 @@ function getStatusFromLog(log) {
     return 'unknown';
 }
 
+function formatDuration(ms) {
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    const s = ms / 1000;
+    if (s < 60) return `${s.toFixed(1)}s`;
+    const m = s / 60;
+    if (m < 60) return `${m.toFixed(1)}m`;
+    const h = m / 60;
+    return `${h.toFixed(1)}h`;
+}
+
 function createChart(logs, range) {
     const datasets = [];
-    if (logs.length > 0) {
-        for (let i = 0; i < logs.length - 1; i++) {
-            const currentLog = logs[i];
-            const nextLog = logs[i+1];
-            const status = getStatusFromLog(currentLog);
-            datasets.push({
-                label: STATUS_MAP[status]?.label || 'Unknown',
-                data: [{ x: [new Date(currentLog.timestamp), new Date(nextLog.timestamp)], y: 'Activity' }],
-                backgroundColor: STATUS_MAP[status]?.color || STATUS_MAP.unknown.color
-            });
-        }
-        
-        const lastLog = logs[logs.length - 1];
-        const lastStatus = getStatusFromLog(lastLog);
-        datasets.push({
-            label: STATUS_MAP[lastStatus]?.label || 'Unknown',
-            data: [{ x: [new Date(lastLog.timestamp), new Date()], y: 'Activity' }],
-            backgroundColor: STATUS_MAP[lastStatus]?.color || STATUS_MAP.unknown.color
-        });
-    }
-
     const timeConfig = {
         '1h': { unit: 'minute', min: new Date(new Date().getTime() - 60 * 60 * 1000) },
         '24h': { unit: 'hour', min: new Date(new Date().getTime() - 24 * 60 * 60 * 1000) }
     };
+    
+    const activityLanes = ['Heartbeat', 'Operations', 'Events', 'Errors'];
+    const now = new Date();
+    
+    if (logs.length > 0) {
+        // Sort logs chronologically (oldest first for processing)
+        const sortedLogs = [...logs].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        
+        // Create heartbeat line dataset
+        const heartbeatData = [];
+        let currentStatus = 'unknown';
+        
+        // Process heartbeat data
+        for (let i = 0; i < sortedLogs.length; i++) {
+            const log = sortedLogs[i];
+            const logTime = new Date(log.timestamp);
+            
+            if (log.event_type === 'status_check' && log.metadata && log.metadata.status) {
+                currentStatus = log.metadata.status;
+                const color = currentStatus === 'running' ? 'rgba(52, 211, 153, 1)' : 'rgba(239, 68, 68, 1)';
+                
+                // Add point for heartbeat
+                heartbeatData.push({
+                    x: logTime,
+                    y: 'Heartbeat'
+                });
+                
+                // If this is not the last log, create a line to the next heartbeat
+                if (i < sortedLogs.length - 1) {
+                    const nextLog = sortedLogs[i + 1];
+                    if (nextLog.event_type === 'status_check') {
+                        const nextTime = new Date(nextLog.timestamp);
+                        // Create line segment
+                        datasets.push({
+                            type: 'line',
+                            label: `Heartbeat (${currentStatus})`,
+                            data: [
+                                { x: logTime, y: 'Heartbeat' },
+                                { x: nextTime, y: 'Heartbeat' }
+                            ],
+                            borderColor: color,
+                            backgroundColor: color,
+                            borderWidth: 3,
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            tension: 0
+                        });
+                    }
+                }
+            }
+        }
+        
+        // Extend heartbeat line to current time if needed
+        if (heartbeatData.length > 0) {
+            const lastHeartbeat = heartbeatData[heartbeatData.length - 1];
+            const color = currentStatus === 'running' ? 'rgba(52, 211, 153, 1)' : 'rgba(239, 68, 68, 1)';
+            
+            datasets.push({
+                type: 'line',
+                label: `Heartbeat (${currentStatus})`,
+                data: [
+                    { x: lastHeartbeat.x, y: 'Heartbeat' },
+                    { x: now, y: 'Heartbeat' }
+                ],
+                borderColor: color,
+                backgroundColor: color,
+                borderWidth: 3,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                tension: 0
+            });
+        }
+        
+        // Process operation events (start/stop with duration)
+        for (const log of sortedLogs) {
+            const activityType = getActivityType(log);
+            const status = getStatusFromLog(log);
+            let lane = 'Events';
+            
+            if (activityType === 'operations') lane = 'Operations';
+            else if (activityType === 'errors') lane = 'Errors';
+            
+            if (log.event_type.includes('begin') || log.event_type.includes('start_') || log.event_type.includes('stop_')) {
+                // Look for corresponding end event
+                const isStart = log.event_type.includes('start');
+                const isStop = log.event_type.includes('stop');
+                const startTime = new Date(log.timestamp);
+                
+                let endTime = startTime;
+                let duration = 0;
+                
+                // Check if we have duration in metadata
+                if (log.metadata && log.metadata.duration_seconds) {
+                    duration = log.metadata.duration_seconds * 1000; // Convert to milliseconds
+                    endTime = new Date(startTime.getTime() + duration);
+                } else {
+                    // Default duration for visualization
+                    duration = 5000; // 5 seconds default
+                    endTime = new Date(startTime.getTime() + duration);
+                }
+                
+                const color = STATUS_MAP[status]?.color || STATUS_MAP.unknown.color;
+                
+                datasets.push({
+                    type: 'bar',
+                    label: `${log.event_type} (${formatDuration(duration)})`,
+                    data: [{
+                        x: [startTime, endTime],
+                        y: lane
+                    }],
+                    backgroundColor: color,
+                    borderColor: color,
+                    borderWidth: 1,
+                    barThickness: 20,
+                    categoryPercentage: 0.8,
+                    metadata: {
+                        event_type: log.event_type,
+                        duration: duration,
+                        note: log.note,
+                        timestamp: log.timestamp
+                    }
+                });
+            } else if (!log.event_type.includes('status_check')) {
+                // Point events (not duration-based)
+                const eventTime = new Date(log.timestamp);
+                const color = STATUS_MAP[status]?.color || STATUS_MAP.unknown.color;
+                
+                datasets.push({
+                    type: 'scatter',
+                    label: log.event_type,
+                    data: [{
+                        x: eventTime,
+                        y: lane
+                    }],
+                    backgroundColor: color,
+                    borderColor: color,
+                    pointRadius: 6,
+                    pointHoverRadius: 8,
+                    metadata: {
+                        event_type: log.event_type,
+                        note: log.note,
+                        timestamp: log.timestamp
+                    }
+                });
+            }
+        }
+    }
 
     const config = {
         type: 'bar',
         data: { datasets },
         options: {
-            indexAxis: 'y',
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'point'
+            },
             plugins: {
-                legend: { display: false },
+                legend: { 
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        color: 'white',
+                        filter: function(item, chart) {
+                            // Only show unique labels
+                            return !item.text.includes('Heartbeat');
+                        }
+                    }
+                },
                 tooltip: {
                     callbacks: {
-                        label: (ctx) => `${ctx.dataset.label}: ${formatDuration(ctx.raw.x[1] - ctx.raw.x[0])}`,
-                        title: (ctx) => `${new Date(ctx[0].raw.x[0]).toLocaleString()} - ${new Date(ctx[0].raw.x[1]).toLocaleString()}`
-                    }
+                        title: (ctx) => {
+                            const point = ctx[0];
+                            if (point.dataset.type === 'bar' && Array.isArray(point.raw.x)) {
+                                return `${new Date(point.raw.x[0]).toLocaleString()} - ${new Date(point.raw.x[1]).toLocaleString()}`;
+                            }
+                            return new Date(point.raw.x).toLocaleString();
+                        },
+                        label: (ctx) => {
+                            const metadata = ctx.dataset.metadata;
+                            if (metadata) {
+                                let label = `${metadata.event_type}`;
+                                if (metadata.duration) {
+                                    label += ` (Duration: ${formatDuration(metadata.duration)})`;
+                                }
+                                if (metadata.note) {
+                                    label += `\nNote: ${metadata.note}`;
+                                }
+                                return label;
+                            }
+                            return ctx.dataset.label;
+                        }
+                    },
+                    titleColor: 'white',
+                    bodyColor: 'white',
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    borderColor: 'rgba(255, 255, 255, 0.2)',
+                    borderWidth: 1
                 }
             },
             scales: {
@@ -258,13 +439,13 @@ function createChart(logs, range) {
                     type: 'time',
                     time: { unit: timeConfig[range].unit },
                     min: timeConfig[range].min,
-                    max: new Date(),
-                    stacked: true,
+                    max: now,
                     grid: { color: 'rgba(255, 255, 255, 0.1)' },
                     ticks: { color: 'white' }
                 },
                 y: {
-                    stacked: true,
+                    type: 'category',
+                    labels: activityLanes,
                     grid: { display: false },
                     ticks: { color: 'white' }
                 }
@@ -292,6 +473,12 @@ async function fetchData(range) {
 function updateStatus(liveStatus) {
     const statusValue = document.getElementById('statusValue');
     const lastUpdated = document.getElementById('lastUpdated');
+    
+    // Get all buttons
+    const startBtn = document.getElementById('startBtn');
+    const quickStartBtn = document.getElementById('quickStartBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const quickStopBtn = document.getElementById('quickStopBtn');
     const restartBtn = document.getElementById('restartStudioBtn');
     const quickRestartBtn = document.getElementById('restartBtn');
     
@@ -310,22 +497,51 @@ function updateStatus(liveStatus) {
         statusValue.className += 'text-gray-400';
     }
     
-    // Enable/disable restart button based on status
-    if (liveStatus.status === 'stopped') {
-        restartBtn.disabled = true;
-        quickRestartBtn.disabled = true;
-        restartBtn.classList.add('opacity-50', 'cursor-not-allowed');
-        quickRestartBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    // Update button states based on studio status (only if not in operation)
+    if (!isOperationInProgress()) {
+        updateButtonStates(liveStatus.status);
+    }
+}
+
+function isOperationInProgress() {
+    // Check if any operation is currently in progress
+    return progressInterval !== null;
+}
+
+function updateButtonStates(status) {
+    const startBtn = document.getElementById('startBtn');
+    const quickStartBtn = document.getElementById('quickStartBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const quickStopBtn = document.getElementById('quickStopBtn');
+    const restartBtn = document.getElementById('restartStudioBtn');
+    const quickRestartBtn = document.getElementById('restartBtn');
+    
+    // Reset all buttons first
+    [startBtn, quickStartBtn, stopBtn, quickStopBtn, restartBtn, quickRestartBtn].forEach(btn => {
+        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+        btn.disabled = false;
+        btn.title = '';
+    });
+    
+    if (status === 'running') {
+        // Disable start buttons when running
+        [startBtn, quickStartBtn].forEach(btn => {
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+            btn.title = 'Studio is already running';
+        });
+    } else if (status === 'stopped') {
+        // Disable stop and restart buttons when stopped
+        [stopBtn, quickStopBtn, restartBtn, quickRestartBtn].forEach(btn => {
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+        });
+        stopBtn.title = 'Studio is already stopped';
+        quickStopBtn.title = 'Studio is already stopped';
         restartBtn.title = 'Cannot restart when studio is stopped';
         quickRestartBtn.title = 'Cannot restart when studio is stopped';
-    } else {
-        restartBtn.disabled = false;
-        quickRestartBtn.disabled = false;
-        restartBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-        quickRestartBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-        restartBtn.title = '';
-        quickRestartBtn.title = '';
     }
+    // For starting/stopping/restarting states, keep all buttons enabled for user feedback
 }
 
 function setTimeRange(range) {
@@ -357,6 +573,9 @@ async function startStudio() {
         const data = await response.json();
         
         if (data.start_id) {
+            // Save operation state
+            saveOperationState('start', data.start_id);
+            
             let seconds = 0;
             progressInterval = setInterval(() => {
                 seconds++;
@@ -384,6 +603,7 @@ function resetStartButtons() {
     quickStartBtn.disabled = false;
     startBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Start Studio';
     quickStartBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Quick Start';
+    clearOperationState(); // Clear saved operation state
 }
 
 async function stopStudio() {
@@ -397,6 +617,9 @@ async function stopStudio() {
             // Disable buttons and show stopping state with countdown
             stopBtn.disabled = true;
             quickStopBtn.disabled = true;
+            
+            // Save operation state
+            saveOperationState('stop');
             
             let stopSeconds = 0;
             const stopInterval = setInterval(() => {
@@ -423,6 +646,7 @@ async function stopStudio() {
                     quickStopBtn.disabled = false;
                     stopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Stop Studio';
                     quickStopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Quick Stop';
+                    clearOperationState(); // Clear saved operation state
                 }, 3000);
                 
                 fetchData(currentRange);
@@ -434,6 +658,7 @@ async function stopStudio() {
                 quickStopBtn.disabled = false;
                 stopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Stop Studio';
                 quickStopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Quick Stop';
+                clearOperationState(); // Clear saved operation state
             }
         }}
     ];
@@ -449,6 +674,9 @@ async function restartStudio() {
     // Disable buttons and show restarting state with countdown
     restartBtn.disabled = true;
     quickRestartBtn.disabled = true;
+    
+    // Save operation state
+    saveOperationState('restart');
     
     let restartSeconds = 0;
     const restartInterval = setInterval(() => {
@@ -481,6 +709,7 @@ async function restartStudio() {
             quickRestartBtn.disabled = false;
             restartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart Studio';
             quickRestartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart';
+            clearOperationState(); // Clear saved operation state
         }, 3000);
         
         fetchData(currentRange);
@@ -494,6 +723,7 @@ async function restartStudio() {
         quickRestartBtn.disabled = false;
         restartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart Studio';
         quickRestartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart';
+        clearOperationState(); // Clear saved operation state
     }
 }
 
@@ -532,9 +762,123 @@ document.getElementById('quickStartBtn').addEventListener('click', startStudio);
 document.getElementById('quickStopBtn').addEventListener('click', stopStudio);
 document.getElementById('restartBtn').addEventListener('click', restartStudio);
 
+// State persistence for operations
+let operationState = {
+    type: null, // 'start', 'stop', 'restart'
+    startTime: null,
+    startId: null
+};
+
+function saveOperationState(type, startId = null) {
+    operationState = {
+        type: type,
+        startTime: Date.now(),
+        startId: startId
+    };
+    localStorage.setItem('studioOperationState', JSON.stringify(operationState));
+}
+
+function loadOperationState() {
+    const saved = localStorage.getItem('studioOperationState');
+    if (saved) {
+        operationState = JSON.parse(saved);
+        // Check if operation is still valid (not older than 5 minutes)
+        if (operationState.startTime && (Date.now() - operationState.startTime) < 300000) {
+            restoreOperationUI();
+        } else {
+            clearOperationState();
+        }
+    }
+}
+
+function clearOperationState() {
+    operationState = { type: null, startTime: null, startId: null };
+    localStorage.removeItem('studioOperationState');
+}
+
+function restoreOperationUI() {
+    if (!operationState.type) return;
+    
+    const elapsed = Math.floor((Date.now() - operationState.startTime) / 1000);
+    
+    if (operationState.type === 'start') {
+        const startBtn = document.getElementById('startBtn');
+        const quickStartBtn = document.getElementById('quickStartBtn');
+        startBtn.disabled = true;
+        quickStartBtn.disabled = true;
+        startBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Starting (${elapsed}s)`;
+        quickStartBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Starting (${elapsed}s)`;
+        
+        // Resume progress checking if we have a start ID
+        if (operationState.startId) {
+            let seconds = elapsed;
+            progressInterval = setInterval(() => {
+                seconds++;
+                startBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Starting (${seconds}s)`;
+                quickStartBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Starting (${seconds}s)`;
+                checkProgress(operationState.startId);
+            }, 1000);
+        }
+    } else if (operationState.type === 'stop') {
+        const stopBtn = document.getElementById('stopBtn');
+        const quickStopBtn = document.getElementById('quickStopBtn');
+        stopBtn.disabled = true;
+        quickStopBtn.disabled = true;
+        stopBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Stopping (${elapsed}s)`;
+        quickStopBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Stopping (${elapsed}s)`;
+        
+        // Continue counting for stop operation
+        let seconds = elapsed;
+        const stopInterval = setInterval(() => {
+            seconds++;
+            stopBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Stopping (${seconds}s)`;
+            quickStopBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Stopping (${seconds}s)`;
+            
+            // Auto-clear after reasonable time (30 seconds)
+            if (seconds > 30) {
+                clearInterval(stopInterval);
+                clearOperationState();
+                stopBtn.disabled = false;
+                quickStopBtn.disabled = false;
+                stopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Stop Studio';
+                quickStopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Quick Stop';
+            }
+        }, 1000);
+    } else if (operationState.type === 'restart') {
+        const restartBtn = document.getElementById('restartStudioBtn');
+        const quickRestartBtn = document.getElementById('restartBtn');
+        restartBtn.disabled = true;
+        quickRestartBtn.disabled = true;
+        restartBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Restarting (${elapsed}s)`;
+        quickRestartBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Restarting (${elapsed}s)`;
+        
+        // Continue counting for restart operation
+        let seconds = elapsed;
+        const restartInterval = setInterval(() => {
+            seconds++;
+            restartBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Restarting (${seconds}s)`;
+            quickRestartBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Restarting (${seconds}s)`;
+            
+            // Auto-clear after reasonable time (60 seconds)
+            if (seconds > 60) {
+                clearInterval(restartInterval);
+                clearOperationState();
+                restartBtn.disabled = false;
+                quickRestartBtn.disabled = false;
+                restartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart Studio';
+                quickRestartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart';
+            }
+        }, 1000);
+    }
+}
+
 // Initialize
+loadOperationState(); // Load any ongoing operations
 setTimeRange('1h');
 setInterval(() => fetchData(currentRange), 300000);
+
+// Fetch initial data immediately
+fetchData('1h');
 
 // Load quick stats
 async function loadQuickStats() {
