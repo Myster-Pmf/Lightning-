@@ -194,10 +194,10 @@ function closeModal() {
 // Enhanced Chart functions with activity lanes
 function getActivityType(log) {
     const type = log.event_type;
-    if (type === 'status_check') return 'heartbeat';
-    if (type.includes('start') || type.includes('stop') || type.includes('restart')) return 'operations';
-    if (type.includes('error')) return 'errors';
-    return 'events';
+    if (type === 'status_check') return 'Heartbeat';
+    if (type.includes('start')) return 'Start';
+    if (type.includes('stop')) return 'Stop';
+    return 'Events'; // This includes errors and other events
 }
 
 function getStatusFromLog(log) {
@@ -234,16 +234,18 @@ function createChart(logs, range) {
         '24h': { unit: 'hour', min: new Date(new Date().getTime() - 24 * 60 * 60 * 1000) }
     };
     
-    const activityLanes = ['Heartbeat', 'Operations', 'Events', 'Errors'];
+    const activityLanes = ['Start', 'Stop', 'Events', 'Heartbeat'];
     const now = new Date();
+    // Add 10% padding after current time
+    const paddedMax = new Date(now.getTime() + (now.getTime() - timeConfig[range].min.getTime()) * 0.1);
     
     if (logs.length > 0) {
         // Sort logs chronologically (oldest first for processing)
         const sortedLogs = [...logs].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
         
         // Create heartbeat line dataset
-        const heartbeatData = [];
         let currentStatus = 'unknown';
+        let lastHeartbeatTime = null;
         
         // Process heartbeat data
         for (let i = 0; i < sortedLogs.length; i++) {
@@ -251,113 +253,102 @@ function createChart(logs, range) {
             const logTime = new Date(log.timestamp);
             
             if (log.event_type === 'status_check' && log.metadata && log.metadata.status) {
-                currentStatus = log.metadata.status;
-                const color = currentStatus === 'running' ? 'rgba(52, 211, 153, 1)' : 'rgba(239, 68, 68, 1)';
+                const newStatus = log.metadata.status;
+                const color = newStatus === 'running' ? 'rgba(52, 211, 153, 1)' : 'rgba(239, 68, 68, 1)';
                 
-                // Add point for heartbeat
-                heartbeatData.push({
-                    x: logTime,
-                    y: 'Heartbeat'
-                });
-                
-                // If this is not the last log, create a line to the next heartbeat
-                if (i < sortedLogs.length - 1) {
-                    const nextLog = sortedLogs[i + 1];
-                    if (nextLog.event_type === 'status_check') {
-                        const nextTime = new Date(nextLog.timestamp);
-                        // Create line segment
-                        datasets.push({
-                            type: 'line',
-                            label: `Heartbeat (${currentStatus})`,
-                            data: [
-                                { x: logTime, y: 'Heartbeat' },
-                                { x: nextTime, y: 'Heartbeat' }
-                            ],
-                            borderColor: color,
-                            backgroundColor: color,
-                            borderWidth: 3,
-                            pointRadius: 4,
-                            pointHoverRadius: 6,
-                            tension: 0
-                        });
-                    }
+                // If status changed or this is the first heartbeat, create a line segment
+                if (lastHeartbeatTime && currentStatus === newStatus) {
+                    // Continue the same status line
+                    datasets.push({
+                        type: 'line',
+                        label: `Status: ${newStatus}`,
+                        data: [
+                            { x: lastHeartbeatTime, y: 'Heartbeat' },
+                            { x: logTime, y: 'Heartbeat' }
+                        ],
+                        borderColor: color,
+                        backgroundColor: color,
+                        borderWidth: 3,
+                        pointRadius: 2,
+                        pointHoverRadius: 4,
+                        tension: 0,
+                        showLine: true
+                    });
                 }
+                
+                currentStatus = newStatus;
+                lastHeartbeatTime = logTime;
             }
         }
         
-        // Extend heartbeat line to current time if needed
-        if (heartbeatData.length > 0) {
-            const lastHeartbeat = heartbeatData[heartbeatData.length - 1];
+        // Extend heartbeat line to current time
+        if (lastHeartbeatTime && currentStatus !== 'unknown') {
             const color = currentStatus === 'running' ? 'rgba(52, 211, 153, 1)' : 'rgba(239, 68, 68, 1)';
-            
             datasets.push({
                 type: 'line',
-                label: `Heartbeat (${currentStatus})`,
+                label: `Status: ${currentStatus}`,
                 data: [
-                    { x: lastHeartbeat.x, y: 'Heartbeat' },
+                    { x: lastHeartbeatTime, y: 'Heartbeat' },
                     { x: now, y: 'Heartbeat' }
                 ],
                 borderColor: color,
                 backgroundColor: color,
                 borderWidth: 3,
-                pointRadius: 4,
-                pointHoverRadius: 6,
-                tension: 0
+                pointRadius: 2,
+                pointHoverRadius: 4,
+                tension: 0,
+                showLine: true
             });
         }
         
-        // Process operation events (start/stop with duration)
+        // Process operation events
         for (const log of sortedLogs) {
             const activityType = getActivityType(log);
             const status = getStatusFromLog(log);
-            let lane = 'Events';
             
-            if (activityType === 'operations') lane = 'Operations';
-            else if (activityType === 'errors') lane = 'Errors';
+            // Skip heartbeat events as they're handled above
+            if (activityType === 'Heartbeat') continue;
             
-            if (log.event_type.includes('begin') || log.event_type.includes('start_') || log.event_type.includes('stop_')) {
-                // Look for corresponding end event
-                const isStart = log.event_type.includes('start');
-                const isStop = log.event_type.includes('stop');
-                const startTime = new Date(log.timestamp);
+            const lane = activityType; // 'Start', 'Stop', or 'Events'
+            const eventTime = new Date(log.timestamp);
+            
+            if (log.event_type.includes('success') || log.event_type.includes('error')) {
+                // Operation completion events - show as duration bars if we have timing data
+                let duration = 5000; // Default 5 seconds
+                let startTime = eventTime;
                 
-                let endTime = startTime;
-                let duration = 0;
-                
-                // Check if we have duration in metadata
                 if (log.metadata && log.metadata.duration_seconds) {
-                    duration = log.metadata.duration_seconds * 1000; // Convert to milliseconds
-                    endTime = new Date(startTime.getTime() + duration);
-                } else {
-                    // Default duration for visualization
-                    duration = 5000; // 5 seconds default
-                    endTime = new Date(startTime.getTime() + duration);
+                    duration = log.metadata.duration_seconds * 1000;
+                    if (log.metadata.start_time) {
+                        startTime = new Date(log.metadata.start_time);
+                    } else {
+                        startTime = new Date(eventTime.getTime() - duration);
+                    }
                 }
                 
                 const color = STATUS_MAP[status]?.color || STATUS_MAP.unknown.color;
                 
                 datasets.push({
                     type: 'bar',
-                    label: `${log.event_type} (${formatDuration(duration)})`,
+                    label: log.event_type,
                     data: [{
-                        x: [startTime, endTime],
+                        x: [startTime, eventTime],
                         y: lane
                     }],
                     backgroundColor: color,
                     borderColor: color,
                     borderWidth: 1,
-                    barThickness: 20,
+                    barThickness: 15,
                     categoryPercentage: 0.8,
-                    metadata: {
+                    eventData: {
                         event_type: log.event_type,
                         duration: duration,
                         note: log.note,
                         timestamp: log.timestamp
                     }
                 });
-            } else if (!log.event_type.includes('status_check')) {
+            } else if (!log.event_type.includes('begin')) {
                 // Point events (not duration-based)
-                const eventTime = new Date(log.timestamp);
                 const color = STATUS_MAP[status]?.color || STATUS_MAP.unknown.color;
                 
                 datasets.push({
@@ -369,9 +360,9 @@ function createChart(logs, range) {
                     }],
                     backgroundColor: color,
                     borderColor: color,
-                    pointRadius: 6,
-                    pointHoverRadius: 8,
-                    metadata: {
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    eventData: {
                         event_type: log.event_type,
                         note: log.note,
                         timestamp: log.timestamp
@@ -382,28 +373,24 @@ function createChart(logs, range) {
     }
 
     const config = {
-        type: 'bar',
+        type: 'scatter', // Use scatter as base type for mixed chart
         data: { datasets },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             interaction: {
                 intersect: false,
-                mode: 'point'
+                mode: 'nearest'
             },
             plugins: {
                 legend: { 
-                    display: true,
-                    position: 'top',
-                    labels: {
-                        color: 'white',
-                        filter: function(item, chart) {
-                            // Only show unique labels
-                            return !item.text.includes('Heartbeat');
-                        }
-                    }
+                    display: false // Hide legend to avoid clutter
                 },
                 tooltip: {
+                    filter: function(tooltipItem) {
+                        // Only show tooltips for actual data points, not lines
+                        return tooltipItem.dataset.type !== 'line';
+                    },
                     callbacks: {
                         title: (ctx) => {
                             const point = ctx[0];
@@ -413,25 +400,20 @@ function createChart(logs, range) {
                             return new Date(point.raw.x).toLocaleString();
                         },
                         label: (ctx) => {
-                            const metadata = ctx.dataset.metadata;
-                            if (metadata) {
-                                let label = `${metadata.event_type}`;
-                                if (metadata.duration) {
-                                    label += ` (Duration: ${formatDuration(metadata.duration)})`;
+                            const eventData = ctx.dataset.eventData;
+                            if (eventData) {
+                                let label = eventData.event_type;
+                                if (eventData.duration) {
+                                    label += ` (Duration: ${formatDuration(eventData.duration)})`;
                                 }
-                                if (metadata.note) {
-                                    label += `\nNote: ${metadata.note}`;
+                                if (eventData.note) {
+                                    label += `\n${eventData.note}`;
                                 }
                                 return label;
                             }
                             return ctx.dataset.label;
                         }
-                    },
-                    titleColor: 'white',
-                    bodyColor: 'white',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    borderColor: 'rgba(255, 255, 255, 0.2)',
-                    borderWidth: 1
+                    }
                 }
             },
             scales: {
@@ -439,7 +421,7 @@ function createChart(logs, range) {
                     type: 'time',
                     time: { unit: timeConfig[range].unit },
                     min: timeConfig[range].min,
-                    max: now,
+                    max: paddedMax,
                     grid: { color: 'rgba(255, 255, 255, 0.1)' },
                     ticks: { color: 'white' }
                 },
@@ -505,7 +487,7 @@ function updateStatus(liveStatus) {
 
 function isOperationInProgress() {
     // Check if any operation is currently in progress
-    return progressInterval !== null;
+    return progressInterval !== null || operationState.type !== null;
 }
 
 function updateButtonStates(status) {
@@ -734,6 +716,7 @@ async function checkProgress(startId) {
         
         if (data.status === 'completed') {
             clearInterval(progressInterval);
+            progressInterval = null; // Reset progress interval
             resetStartButtons();
             
             const actions = [{ text: 'Close', class: 'bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold', onclick: closeModal }];
@@ -750,6 +733,7 @@ async function checkProgress(startId) {
     } catch (error) {
         console.error('Error checking progress:', error);
         clearInterval(progressInterval);
+        progressInterval = null; // Reset progress interval
         resetStartButtons();
     }
 }
@@ -842,6 +826,7 @@ function restoreOperationUI() {
                 quickStopBtn.disabled = false;
                 stopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Stop Studio';
                 quickStopBtn.innerHTML = '<i class="fas fa-stop mr-2"></i>Quick Stop';
+                fetchData(currentRange); // Refresh data
             }
         }, 1000);
     } else if (operationState.type === 'restart') {
@@ -867,6 +852,7 @@ function restoreOperationUI() {
                 quickRestartBtn.disabled = false;
                 restartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart Studio';
                 quickRestartBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Restart';
+                fetchData(currentRange); // Refresh data
             }
         }, 1000);
     }
