@@ -75,6 +75,11 @@ def create_dashboard_app():
     app.config['FILE_SERVICE'] = file_service
     app.config['ASYNC_TASKS'] = {}
     
+    # Pass lightning service to scheduler for execution
+    if scheduler_service and lightning_service:
+        scheduler_service.set_lightning_service(lightning_service)
+        print("Lightning service passed to scheduler")
+    
     # Register blueprints
     app.register_blueprint(main_bp)
     app.register_blueprint(api_bp, url_prefix='/api')

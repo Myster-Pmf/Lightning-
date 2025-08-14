@@ -12,6 +12,7 @@ except ImportError:
     pytz = None
 from datetime import datetime, timedelta
 from threading import Lock
+from lightning_sdk import Machine
 from ..utils.logging_utils import debug_print, log_event
 
 class SchedulerService:
@@ -25,8 +26,14 @@ class SchedulerService:
         self.auto_restart_history_file = "data/auto_restart_history.json"
         self.auto_restart_config = None
         self.last_uptime_check = None
+        self.lightning_service = None  # Store reference to lightning service
         self._load_schedules()
         self._load_auto_restart_config()
+    
+    def set_lightning_service(self, lightning_service):
+        """Set the lightning service reference for scheduler operations"""
+        self.lightning_service = lightning_service
+        debug_print("Lightning service reference set for scheduler")
     
     def _ensure_data_dir(self):
         """Ensure data directory exists"""
@@ -374,11 +381,9 @@ class SchedulerService:
     def _execute_schedule(self, schedule):
         """Execute a scheduled task"""
         try:
-            from flask import current_app
-            lightning_service = current_app.config.get('LIGHTNING_SERVICE')
-            
-            if not lightning_service:
+            if not self.lightning_service:
                 debug_print("Lightning service not available for scheduled task")
+                log_event("schedule_error", "Lightning service not available", "error")
                 return
             
             action = schedule["action"]
@@ -389,7 +394,7 @@ class SchedulerService:
             
             if action == "start":
                 machine_type = getattr(Machine, schedule.get("machine_type", "CPU"), Machine.CPU)
-                success, message = lightning_service.start_studio(machine_type)
+                success, message = self.lightning_service.start_studio(machine_type)
                 
                 if success and schedule.get("post_start_commands"):
                     # Execute post-start commands after a delay
@@ -405,11 +410,11 @@ class SchedulerService:
                     self.execute_post_start_commands(schedule["pre_stop_commands"])
                     time.sleep(10)  # Wait for commands to complete
                 
-                success, message = lightning_service.stop_studio()
+                success, message = self.lightning_service.stop_studio()
             
             elif action == "restart":
                 machine_type = getattr(Machine, schedule.get("machine_type", "CPU"), Machine.CPU)
-                success, message = lightning_service.restart_studio(machine_type)
+                success, message = self.lightning_service.restart_studio(machine_type)
             
             else:
                 success, message = False, f"Unknown action: {action}"
