@@ -24,7 +24,7 @@
         <div class="flex justify-between items-center mb-4">
             <h2 class="text-xl font-semibold">Auto-Restart Configuration</h2>
             <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" id="autoRestartEnabled" class="sr-only peer">
+                <input type="checkbox" id="autoRestartEnabled" class="sr-only peer" onchange="toggleAutoRestartConfig()">
                 <div class="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                 <span class="ml-3 text-sm font-medium">Enable Auto-Restart</span>
             </label>
@@ -34,7 +34,7 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-medium mb-2">Restart Method</label>
-                    <select id="restartMethod" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2">
+                    <select id="restartMethod" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2" onchange="toggleRestartMethod()">
                         <option value="interval">Time Interval</option>
                         <option value="uptime">Server Uptime</option>
                     </select>
@@ -519,22 +519,11 @@ function toggleRestartMethod() {
     document.getElementById('uptimeConfig').style.display = method === 'uptime' ? 'block' : 'none';
 }
 
-// Event listeners for auto-restart
-document.addEventListener('DOMContentLoaded', function() {
-    const autoRestartEnabled = document.getElementById('autoRestartEnabled');
-    const restartMethod = document.getElementById('restartMethod');
-    
-    if (autoRestartEnabled) {
-        autoRestartEnabled.addEventListener('change', toggleAutoRestartConfig);
-    }
-    if (restartMethod) {
-        restartMethod.addEventListener('change', toggleRestartMethod);
-    }
-});
-
-// Load auto-restart data
-loadAutoRestartConfig();
-loadAutoRestartHistory();
+// Load auto-restart data when page loads
+setTimeout(() => {
+    loadAutoRestartConfig();
+    loadAutoRestartHistory();
+}, 100);
 
 // Initialize form state
 toggleScheduleFields('once');

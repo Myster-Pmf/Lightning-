@@ -16,11 +16,18 @@ def get_status():
     lightning_service = current_app.config['LIGHTNING_SERVICE']
     status, error = lightning_service.get_status()
     
-    # Get uptime if studio is running
+    # Get uptime if studio is running - simple direct method
     uptime = None
     uptime_error = None
     if status == 'running':
-        uptime, uptime_error = lightning_service.get_uptime()
+        try:
+            uptime_result = lightning_service.studio.run("uptime -p")
+            if uptime_result:
+                uptime = str(uptime_result).strip()
+            else:
+                uptime_error = "No uptime result"
+        except Exception as e:
+            uptime_error = f"Uptime command failed: {str(e)}"
     
     return jsonify({
         'status': status,
@@ -42,11 +49,18 @@ def get_logs_api():
     lightning_service = current_app.config['LIGHTNING_SERVICE']
     current_status, error = lightning_service.get_status()
     
-    # Get uptime if studio is running
+    # Get uptime if studio is running - simple direct method
     uptime = None
     uptime_error = None
     if current_status == 'running':
-        uptime, uptime_error = lightning_service.get_uptime()
+        try:
+            uptime_result = lightning_service.studio.run("uptime -p")
+            if uptime_result:
+                uptime = str(uptime_result).strip()
+            else:
+                uptime_error = "No uptime result"
+        except Exception as e:
+            uptime_error = f"Uptime command failed: {str(e)}"
     
     return jsonify({
         'logs': logs,
