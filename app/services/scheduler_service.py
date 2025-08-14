@@ -88,14 +88,20 @@ class SchedulerService:
         # Fallback to simple datetime if pytz is not available
         if not pytz:
             now = datetime.now()
+            debug_print(f"Warning: pytz not available, using local time for schedule calculation")
         else:
-            # Get timezone objects
-            user_tz = pytz.timezone(user_timezone) if user_timezone != 'UTC' else pytz.UTC
-            server_tz = pytz.UTC
-            
-            now_utc = datetime.now(server_tz)
-            now_user = now_utc.astimezone(user_tz)
-            now = now_user
+            try:
+                # Get timezone objects
+                user_tz = pytz.timezone(user_timezone) if user_timezone != 'UTC' else pytz.UTC
+                server_tz = pytz.UTC
+                
+                now_utc = datetime.now(server_tz)
+                now_user = now_utc.astimezone(user_tz)
+                now = now_user
+                debug_print(f"Using timezone: {user_timezone}, current time: {now}")
+            except Exception as e:
+                debug_print(f"Error with timezone {user_timezone}: {e}, falling back to UTC")
+                now = datetime.now(pytz.UTC)
         
         if schedule_data.get("schedule_type") == "once":
             datetime_str = schedule_data.get("datetime")

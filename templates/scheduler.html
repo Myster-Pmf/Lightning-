@@ -84,6 +84,7 @@
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Action</th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Schedule</th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Next Run</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Countdown</th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Status</th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase">Actions</th>
                         </tr>
@@ -121,6 +122,13 @@
                                 {% else %}
                                     --
                                 {% endif %}
+                            </td>
+                            <td class="px-4 py-4 whitespace-nowrap text-sm">
+                                <span class="countdown-timer" 
+                                      data-next-run="{% if schedule.next_run %}{{ schedule.next_run }}{% endif %}"
+                                      data-timezone="{{ schedule.timezone|default('UTC') }}">
+                                    {% if schedule.next_run %}Calculating...{% else %}--{% endif %}
+                                </span>
                             </td>
                             <td class="px-4 py-4 whitespace-nowrap">
                                 <span class="px-2 py-1 text-xs font-semibold rounded-full
@@ -338,46 +346,7 @@ document.querySelector('select[name="action"]').addEventListener('change', funct
     }
 });
 
-// Form submission
-document.getElementById('scheduleForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    
-    const formData = new FormData(e.target);
-    const data = {};
-    
-    // Convert form data to object
-    for (let [key, value] of formData.entries()) {
-        if (key === 'days') {
-            if (!data.days) data.days = [];
-            data.days.push(value);
-        } else if (key === 'post_start_commands' || key === 'pre_stop_commands') {
-            data[key] = value.split('\n').filter(cmd => cmd.trim());
-        } else {
-            data[key] = value;
-        }
-    }
-    
-    try {
-        const response = await fetch('/scheduler/add', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showNotification('Schedule created successfully', 'success');
-            closeScheduleModal();
-            location.reload(); // Refresh to show new schedule
-        } else {
-            showNotification(result.error || 'Failed to create schedule', 'error');
-        }
-    } catch (error) {
-        showNotification('Failed to create schedule', 'error');
-        console.error('Error creating schedule:', error);
-    }
-});
+// Form submission - removed duplicate, handled below with timezone fix
 
 // Schedule management functions
 async function toggleSchedule(scheduleId) {
@@ -524,6 +493,103 @@ setTimeout(() => {
     loadAutoRestartConfig();
     loadAutoRestartHistory();
 }, 100);
+
+// Schedule countdown functions
+function calculateTimeUntilNext(nextRunISO, timezone = 'UTC') {
+    if (!nextRunISO) return 'Not scheduled';
+    
+    try {
+        const nextRun = new Date(nextRunISO);
+        const now = new Date();
+        const diff = nextRun.getTime() - now.getTime();
+        
+        if (diff <= 0) return 'Overdue';
+        
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        
+        if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+        if (hours > 0) return `${hours}h ${minutes}m`;
+        return `${minutes}m`;
+    } catch (error) {
+        console.error('Error calculating countdown:', error);
+        return 'Error';
+    }
+}
+
+function updateCountdowns() {
+    const countdownElements = document.querySelectorAll('.countdown-timer');
+    countdownElements.forEach(element => {
+        const nextRun = element.getAttribute('data-next-run');
+        const timezone = element.getAttribute('data-timezone') || 'UTC';
+        const countdown = calculateTimeUntilNext(nextRun, timezone);
+        element.textContent = countdown;
+        
+        // Add color coding
+        if (countdown === 'Overdue') {
+            element.className = 'countdown-timer text-red-400 font-medium';
+        } else if (countdown.includes('m') && !countdown.includes('h') && !countdown.includes('d')) {
+            element.className = 'countdown-timer text-yellow-400 font-medium';
+        } else if (countdown !== '--' && countdown !== 'Not scheduled' && countdown !== 'Error') {
+            element.className = 'countdown-timer text-green-400';
+        } else {
+            element.className = 'countdown-timer text-gray-400';
+        }
+    });
+}
+
+// Fix timezone issues by adding timezone to form data
+document.getElementById('scheduleForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const data = {};
+    
+    // Convert form data to object
+    for (let [key, value] of formData.entries()) {
+        if (key === 'days') {
+            if (!data.days) data.days = [];
+            data.days.push(value);
+        } else if (key === 'post_start_commands' || key === 'pre_stop_commands') {
+            data[key] = value.split('\n').filter(cmd => cmd.trim());
+        } else {
+            data[key] = value;
+        }
+    }
+    
+    // Add user's timezone if not specified
+    if (!data.timezone) {
+        data.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    }
+    
+    try {
+        const response = await fetch('/scheduler/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('Schedule created successfully', 'success');
+            closeScheduleModal();
+            location.reload(); // Refresh to show new schedule
+        } else {
+            showNotification(result.error || 'Failed to create schedule', 'error');
+        }
+    } catch (error) {
+        showNotification('Failed to create schedule', 'error');
+        console.error('Error creating schedule:', error);
+    }
+});
+
+// Update countdowns every minute
+setInterval(updateCountdowns, 60000);
+
+// Initial countdown update
+setTimeout(updateCountdowns, 1000);
 
 // Initialize form state
 toggleScheduleFields('once');
