@@ -224,3 +224,56 @@ def reset_interpreter():
     """Reset Python interpreter"""
     python_interpreter.reset()
     return jsonify({"success": True, "message": "Python interpreter session has been reset."})
+
+@api_bp.route('/debug/services')
+def debug_services():
+    """Debug endpoint to check service status"""
+    try:
+        lightning_service = current_app.config.get('LIGHTNING_SERVICE')
+        scheduler_service = current_app.config.get('SCHEDULER_SERVICE')
+        file_service = current_app.config.get('FILE_SERVICE')
+        
+        debug_info = {
+            "lightning_service": {
+                "available": lightning_service is not None,
+                "studio_initialized": lightning_service.studio is not None if lightning_service else False
+            },
+            "scheduler_service": {
+                "available": scheduler_service is not None,
+                "schedules_count": len(scheduler_service.get_schedules()) if scheduler_service else 0
+            },
+            "file_service": {
+                "available": file_service is not None
+            },
+            "pytz_available": False,
+            "uptime_test": None
+        }
+        
+        # Test pytz
+        try:
+            import pytz
+            debug_info["pytz_available"] = True
+        except ImportError:
+            debug_info["pytz_available"] = False
+        
+        # Test uptime functionality
+        if lightning_service:
+            try:
+                uptime, uptime_error = lightning_service.get_uptime()
+                debug_info["uptime_test"] = {
+                    "uptime": uptime,
+                    "error": uptime_error
+                }
+            except Exception as e:
+                debug_info["uptime_test"] = {"error": str(e)}
+        
+        return jsonify({
+            "success": True,
+            "debug_info": debug_info
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500

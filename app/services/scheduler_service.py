@@ -5,7 +5,11 @@ import os
 import json
 import time
 import subprocess
-import pytz
+try:
+    import pytz
+except ImportError:
+    print("Warning: pytz not available, timezone features will be limited")
+    pytz = None
 from datetime import datetime, timedelta
 from threading import Lock
 from ..utils.logging_utils import debug_print, log_event
@@ -81,12 +85,17 @@ class SchedulerService:
     
     def _calculate_next_run(self, schedule_data, user_timezone='UTC'):
         """Calculate the next run time for a schedule with timezone conversion"""
-        # Get timezone objects
-        user_tz = pytz.timezone(user_timezone) if user_timezone != 'UTC' else pytz.UTC
-        server_tz = pytz.UTC
-        
-        now_utc = datetime.now(server_tz)
-        now_user = now_utc.astimezone(user_tz)
+        # Fallback to simple datetime if pytz is not available
+        if not pytz:
+            now = datetime.now()
+        else:
+            # Get timezone objects
+            user_tz = pytz.timezone(user_timezone) if user_timezone != 'UTC' else pytz.UTC
+            server_tz = pytz.UTC
+            
+            now_utc = datetime.now(server_tz)
+            now_user = now_utc.astimezone(user_tz)
+            now = now_user
         
         if schedule_data.get("schedule_type") == "once":
             datetime_str = schedule_data.get("datetime")
@@ -96,9 +105,12 @@ class SchedulerService:
                     user_dt = datetime.fromisoformat(datetime_str.replace('Z', ''))
                     # Localize to user timezone
                     user_dt = user_tz.localize(user_dt)
-                    # Convert to UTC
-                    utc_dt = user_dt.astimezone(server_tz)
-                    return utc_dt.isoformat()
+                    if pytz:
+                        # Convert to UTC
+                        utc_dt = user_dt.astimezone(server_tz)
+                        return utc_dt.isoformat()
+                    else:
+                        return user_dt.isoformat()
                 except Exception as e:
                     debug_print(f"Error parsing datetime: {e}")
                     return None
