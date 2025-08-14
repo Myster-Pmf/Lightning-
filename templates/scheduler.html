@@ -19,6 +19,58 @@
         </button>
     </div>
 
+    <!-- Auto-Restart Section -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-semibold">Auto-Restart Configuration</h2>
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="autoRestartEnabled" class="sr-only peer">
+                <div class="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                <span class="ml-3 text-sm font-medium">Enable Auto-Restart</span>
+            </label>
+        </div>
+        
+        <div id="autoRestartConfig" class="space-y-4" style="display: none;">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2">Restart Method</label>
+                    <select id="restartMethod" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2">
+                        <option value="interval">Time Interval</option>
+                        <option value="uptime">Server Uptime</option>
+                    </select>
+                </div>
+                <div id="intervalConfig">
+                    <label class="block text-sm font-medium mb-2">Interval (minutes)</label>
+                    <input type="number" id="intervalMinutes" value="210" min="30" max="1440" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2">
+                </div>
+                <div id="uptimeConfig" style="display: none;">
+                    <label class="block text-sm font-medium mb-2">Uptime Threshold</label>
+                    <input type="text" id="uptimeThreshold" value="3 hours 50 minutes" placeholder="e.g., 3 hours 50 minutes" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2">
+                </div>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium mb-2">Post-Restart Commands</label>
+                <textarea id="postRestartCommands" rows="3" placeholder="Enter commands to run after restart (one per line)" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"></textarea>
+            </div>
+            
+            <div class="flex justify-between items-center">
+                <button onclick="saveAutoRestartConfig()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-semibold">
+                    Save Configuration
+                </button>
+                <div id="autoRestartStatus" class="text-sm text-gray-400"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auto-Restart History -->
+    <div class="card rounded-lg shadow-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">Auto-Restart History</h2>
+        <div id="autoRestartHistory" class="space-y-2">
+            <p class="text-gray-400">Loading history...</p>
+        </div>
+    </div>
+
     <!-- Active Schedules -->
     <div class="card rounded-lg shadow-lg p-6">
         <h2 class="text-xl font-semibold mb-4">Active Schedules</h2>
@@ -374,6 +426,106 @@ async function deleteSchedule(scheduleId) {
 
 // Event listeners
 document.getElementById('newScheduleBtn').addEventListener('click', openScheduleModal);
+
+// Auto-restart functionality
+async function loadAutoRestartConfig() {
+    try {
+        const response = await fetch('/scheduler/auto-restart/config');
+        const data = await response.json();
+        
+        if (data.success && data.config) {
+            const config = data.config;
+            document.getElementById('autoRestartEnabled').checked = config.enabled || false;
+            document.getElementById('restartMethod').value = config.method || 'interval';
+            document.getElementById('intervalMinutes').value = config.interval_minutes || 210;
+            document.getElementById('uptimeThreshold').value = config.uptime_threshold || '3 hours 50 minutes';
+            document.getElementById('postRestartCommands').value = (config.post_restart_commands || []).join('\n');
+            
+            toggleAutoRestartConfig();
+            toggleRestartMethod();
+        }
+    } catch (error) {
+        console.error('Failed to load auto-restart config:', error);
+    }
+}
+
+async function saveAutoRestartConfig() {
+    try {
+        const config = {
+            enabled: document.getElementById('autoRestartEnabled').checked,
+            method: document.getElementById('restartMethod').value,
+            interval_minutes: parseInt(document.getElementById('intervalMinutes').value),
+            uptime_threshold: document.getElementById('uptimeThreshold').value,
+            post_restart_commands: document.getElementById('postRestartCommands').value.split('\n').filter(cmd => cmd.trim())
+        };
+        
+        const response = await fetch('/scheduler/auto-restart/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            document.getElementById('autoRestartStatus').textContent = 'Configuration saved successfully';
+            document.getElementById('autoRestartStatus').className = 'text-sm text-green-400';
+        } else {
+            document.getElementById('autoRestartStatus').textContent = 'Failed to save configuration';
+            document.getElementById('autoRestartStatus').className = 'text-sm text-red-400';
+        }
+    } catch (error) {
+        document.getElementById('autoRestartStatus').textContent = 'Error saving configuration';
+        document.getElementById('autoRestartStatus').className = 'text-sm text-red-400';
+    }
+}
+
+async function loadAutoRestartHistory() {
+    try {
+        const response = await fetch('/scheduler/auto-restart/history');
+        const data = await response.json();
+        
+        const historyDiv = document.getElementById('autoRestartHistory');
+        
+        if (data.success && data.history && data.history.length > 0) {
+            historyDiv.innerHTML = data.history.reverse().map(entry => `
+                <div class="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
+                    <div>
+                        <div class="text-sm font-medium">${new Date(entry.timestamp).toLocaleString()}</div>
+                        <div class="text-xs text-gray-400">Trigger: ${entry.trigger_type} | Duration: ${entry.total_duration_seconds?.toFixed(1)}s</div>
+                        ${entry.commands_executed ? `<div class="text-xs text-blue-400">${entry.commands_executed} commands executed</div>` : ''}
+                    </div>
+                    <div class="text-sm ${entry.success ? 'text-green-400' : 'text-red-400'}">
+                        ${entry.success ? '✅ Success' : '❌ Failed'}
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            historyDiv.innerHTML = '<p class="text-gray-400">No auto-restart history available</p>';
+        }
+    } catch (error) {
+        document.getElementById('autoRestartHistory').innerHTML = '<p class="text-red-400">Failed to load history</p>';
+    }
+}
+
+function toggleAutoRestartConfig() {
+    const enabled = document.getElementById('autoRestartEnabled').checked;
+    document.getElementById('autoRestartConfig').style.display = enabled ? 'block' : 'none';
+}
+
+function toggleRestartMethod() {
+    const method = document.getElementById('restartMethod').value;
+    document.getElementById('intervalConfig').style.display = method === 'interval' ? 'block' : 'none';
+    document.getElementById('uptimeConfig').style.display = method === 'uptime' ? 'block' : 'none';
+}
+
+// Event listeners for auto-restart
+document.getElementById('autoRestartEnabled').addEventListener('change', toggleAutoRestartConfig);
+document.getElementById('restartMethod').addEventListener('change', toggleRestartMethod);
+
+// Load auto-restart data
+loadAutoRestartConfig();
+loadAutoRestartHistory();
 
 // Initialize form state
 toggleScheduleFields('once');

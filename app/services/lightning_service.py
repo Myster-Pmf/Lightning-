@@ -54,14 +54,34 @@ class LightningService:
             if status != 'running':
                 return None, "Studio is not running"
             
-            # Execute uptime -p command on the remote studio
-            result = self.studio.run("uptime -p", capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                uptime_output = result.stdout.strip()
-                return uptime_output, None
-            else:
-                return None, f"Uptime command failed: {result.stderr}"
+            # Try different approaches to get uptime
+            try:
+                # Method 1: Direct studio.run
+                result = self.studio.run("uptime -p")
+                if result and hasattr(result, 'strip'):
+                    return result.strip(), None
+                
+                # Method 2: Try with shell=True
+                import subprocess
+                result = subprocess.run(
+                    ["lightning", "studio", "run", self.studio.name, "uptime", "-p"],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    return result.stdout.strip(), None
+                
+                # Method 3: Simple uptime without -p
+                result = self.studio.run("uptime")
+                if result and hasattr(result, 'strip'):
+                    return result.strip(), None
+                    
+                return None, "Could not execute uptime command"
+                
+            except subprocess.TimeoutExpired:
+                return None, "Uptime command timed out"
+            except Exception as cmd_error:
+                debug_print(f"Command execution error: {cmd_error}")
+                return None, f"Command error: {str(cmd_error)}"
                 
         except Exception as e:
             error_msg = str(e)
