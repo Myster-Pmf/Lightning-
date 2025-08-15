@@ -13,7 +13,7 @@ A comprehensive web dashboard for managing Lightning AI studios with advanced fe
 
 ### ⏰ Advanced Scheduler
 - Schedule studio start/stop operations
-- Support for one-time, daily, and weekly schedules
+- Support for one-time, daily, and weekly schedules 
 - Post-start command execution
 - Pre-stop command execution
 - Enable/disable schedules
