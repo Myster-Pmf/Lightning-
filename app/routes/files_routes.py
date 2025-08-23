@@ -186,7 +186,7 @@ def get_execution_history():
 
 @files_bp.route('/upload', methods=['POST'])
 def upload_file():
-    """Upload a file to workspace"""
+    """Upload a file to workspace and remote"""
     try:
         if 'file' not in request.files:
             return jsonify({
@@ -209,11 +209,31 @@ def upload_file():
         
         file_service = current_app.config['FILE_SERVICE']
         
-        return jsonify({
-            "success": True,
-            "message": f"File '{filename}' uploaded successfully",
-            "file_path": file_path
-        })
+        # Also upload to remote
+        remote_dir, err = file_service.get_remote_working_directory()
+        if err:
+            return jsonify({
+                "success": False,
+                "error": f"File uploaded to workspace, but could not determine remote working directory: {err}",
+                "file_path": file_path
+            })
+
+        remote_path = f"{remote_dir}/{filename}"
+        upload_result = file_service.upload_to_remote(file_path, remote_path)
+        
+        if upload_result['success']:
+            return jsonify({
+                "success": True,
+                "message": f"File '{filename}' uploaded successfully to both workspace and remote",
+                "file_path": file_path,
+                "remote_path": remote_path
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"File uploaded to workspace, but failed to upload to remote: {upload_result['error']}",
+                "file_path": file_path
+            })
         
     except Exception as e:
         return jsonify({

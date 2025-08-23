@@ -154,7 +154,11 @@ class FileService:
             
             # Get file name and prepare remote path
             file_name = os.path.basename(file_path)
-            remote_file_path = f"/tmp/{file_name}"
+            remote_dir, err = self.get_remote_working_directory()
+            if err:
+                return {"success": False, "error": f"Could not determine remote working directory: {err}", "execution_id": execution_id}
+
+            remote_file_path = f"{remote_dir}/{file_name}"
             
             log_event("file_execute_start", f"Uploading and executing {file_path} on remote studio", "event")
             
@@ -171,13 +175,13 @@ class FileService:
             
             # Step 2: Build command for remote execution
             if interpreter == "python":
-                command = f"cd /tmp && python {file_name} {args}".strip()
+                command = f"cd {remote_dir} && python {file_name} {args}".strip()
             elif interpreter == "bash":
-                command = f"cd /tmp && bash {file_name} {args}".strip()
+                command = f"cd {remote_dir} && bash {file_name} {args}".strip()
             elif interpreter == "node":
-                command = f"cd /tmp && node {file_name} {args}".strip()
+                command = f"cd {remote_dir} && node {file_name} {args}".strip()
             else:
-                command = f"cd /tmp && {interpreter} {file_name} {args}".strip()
+                command = f"cd {remote_dir} && {interpreter} {file_name} {args}".strip()
             
             # Step 3: Execute command on remote studio
             try:
@@ -316,8 +320,32 @@ class FileService:
             if execution["id"] == execution_id:
                 return execution
         return None
+
+    def get_remote_working_directory(self):
+        """Get the remote working directory"""
+        try:
+            if not self.studio:
+                return None, "Studio not initialized"
+
+            # Check studio status
+            try:
+                status = str(self.studio.status)
+                status_lower = status.lower().replace('status.', '')
+                if status_lower not in ['running', 'started']:
+                    return None, f"Studio is not running (status: {status})"
+            except Exception as e:
+                return None, f"Cannot check studio status: {str(e)}"
+
+            pwd_result = self.studio.run("pwd")
+            if pwd_result:
+                return str(pwd_result).strip(), None
+            else:
+                return None, "Could not determine remote working directory"
+
+        except Exception as e:
+            return None, str(e)
     
-    def upload_to_remote(self, local_file_path, remote_file_path=None):
+    def upload_to_remote(self, local_file_path, remote_file_path):
         """Upload a file to the remote Lightning AI Studio"""
         try:
             if not self.studio:
@@ -335,11 +363,6 @@ class FileService:
             
             if not os.path.exists(local_file_path):
                 return {"success": False, "error": "Local file not found"}
-            
-            # Default remote path if not specified
-            if remote_file_path is None:
-                file_name = os.path.basename(local_file_path)
-                remote_file_path = f"/tmp/{file_name}"
             
             # Upload file
             self.studio.upload_file(local_file_path, remote_file_path)
