@@ -455,21 +455,12 @@ class FileService:
                 stderr = getattr(result, 'stderr', '')
             else:
                 return_code = 0
-                stdout = str(result)
+                stdout = str(result) if result is not None else ""
                 stderr = ''
             
             success = return_code == 0
             
-            if success:
-                log_event("remote_command_success", f"Remote command executed successfully: {command}", "event", {
-                    "execution_time": execution_time
-                })
-            else:
-                log_event("remote_command_error", f"Remote command failed: {command}", "error", {
-                    "return_code": return_code,
-                    "error": stderr[:500]
-                })
-            
+            # Always return stdout and stderr
             return {
                 "success": success,
                 "stdout": stdout,

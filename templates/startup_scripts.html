@@ -1,60 +1,81 @@
+
+
 {% extends "base.html" %}
 
 {% block title %}Startup Scripts{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
-    <h1 class="mt-4">Startup Scripts</h1>
-    <p>Configure scripts to run automatically when your Lightning AI Studio starts.</p>
+    <div class="flex justify-between items-center">
+        <div>
+            <h1 class="mt-4 text-3xl font-bold">Startup Scripts</h1>
+            <p class="text-gray-400">Configure scripts to run automatically when your Lightning AI Studio starts.</p>
+        </div>
+        <div class="flex gap-4">
+            <button type="button" class="btn btn-primary" onclick="saveConfig()">
+                <i class="fas fa-save mr-2"></i>Save Configuration
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="executeNow()">
+                <i class="fas fa-play-circle mr-2"></i>Execute Now
+            </button>
+        </div>
+    </div>
 
-    <div class="row">
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header">
-                    Configuration
-                </div>
-                <div class="card-body">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+        <!-- Configuration Column -->
+        <div class="flex flex-col gap-6">
+            <div class="card bg-gray-800 rounded-lg shadow-lg">
+                <div class="card-body p-6">
                     <form id="startup-script-form">
-                        <div class="form-group form-check">
-                            <input type="checkbox" class="form-check-input" id="enabled">
-                            <label class="form-check-label" for="enabled">Enable Startup Scripts</label>
+                        <div class="flex items-center justify-between mb-4">
+                            <label for="enabled" class="font-semibold text-lg">Enable Startup Scripts</label>
+                            <input type="checkbox" id="enabled" class="form-checkbox h-6 w-6 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500">
                         </div>
-
-                        <div class="form-group mt-3">
-                            <label for="files">Files to Upload (one per line)</label>
-                            <textarea class="form-control" id="files" rows="3" placeholder="/path/to/local/file1.txt\n/path/to/local/file2.py"></textarea>
+                        <hr class="border-gray-600 my-4">
+                        <div class="flex items-center justify-between">
+                            <label for="debug_mode" class="font-semibold text-lg">Enable Debug Mode</label>
+                            <input type="checkbox" id="debug_mode" class="form-checkbox h-6 w-6 text-yellow-500 bg-gray-700 border-gray-600 rounded focus:ring-yellow-500">
                         </div>
-
-                        <div class="form-group mt-3">
-                            <label for="commands">Commands to Execute (one per line)</label>
-                            <textarea class="form-control" id="commands" rows="5" placeholder="echo 'Hello from tmux'\nls -la"></textarea>
-                        </div>
-
-                        <div class="form-group form-check mt-3">
-                            <input type="checkbox" class="form-check-input" id="debug_mode">
-                            <label class="form-check-label" for="debug_mode">Enable Debug Mode</label>
-                        </div>
-
-                        <button type="button" class="btn btn-primary mt-3" onclick="saveConfig()">Save Configuration</button>
-                        <button type="button" class="btn btn-secondary mt-3" onclick="executeNow()">Execute Now</button>
                     </form>
                 </div>
             </div>
+
+            <div class="card bg-gray-800 rounded-lg shadow-lg">
+                <div class="card-header bg-gray-700 px-6 py-4 border-b border-gray-600">
+                    <h2 class="text-xl font-semibold">Files to Upload</h2>
+                    <p class="text-sm text-gray-400">Enter the full local path for each file on a new line.</p>
+                </div>
+                <div class="card-body p-6">
+                    <textarea id="files" class="w-full h-48 bg-gray-900 text-white font-mono p-4 rounded-lg border border-gray-600 focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+            </div>
+
+            <div class="card bg-gray-800 rounded-lg shadow-lg">
+                <div class="card-header bg-gray-700 px-6 py-4 border-b border-gray-600">
+                    <h2 class="text-xl font-semibold">Commands to Execute</h2>
+                    <p class="text-sm text-gray-400">Enter each command on a new line.</p>
+                </div>
+                <div class="card-body p-6">
+                    <textarea id="commands" class="w-full h-64 bg-gray-900 text-white font-mono p-4 rounded-lg border border-gray-600 focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+            </div>
         </div>
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header">
-                    Execution Status & Output
-                </div>
-                <div class="card-body">
-                    <div id="execution-status"></div>
-                    <pre id="execution-output" class="bg-dark text-white p-3" style="min-height: 200px; max-height: 400px; overflow-y: auto;"></pre>
-                </div>
+
+        <!-- Execution Column -->
+        <div class="card bg-gray-800 rounded-lg shadow-lg">
+            <div class="card-header bg-gray-700 px-6 py-4 border-b border-gray-600 flex justify-between items-center">
+                <h2 class="text-xl font-semibold">Execution Status & Output</h2>
+                <div id="execution-status-indicator" class="flex items-center gap-2 text-sm font-semibold"></div>
+            </div>
+            <div class="card-body p-6">
+                <div id="execution-output" class="bg-black text-white p-4 rounded-lg font-mono text-sm" style="min-height: 400px; max-height: 600px; overflow-y: auto;"></div>
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
 
+{% block extra_js %}
 <script>
     let executionInterval;
 
@@ -89,16 +110,16 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showStatus('Configuration saved successfully.', 'success');
+                showNotification('Configuration saved successfully.', 'success');
             } else {
-                showStatus(`Error: ${data.error}`, 'danger');
+                showNotification(`Error: ${data.error}`, 'error');
             }
         });
     }
 
     function executeNow() {
-        showStatus('Executing startup script... Please wait.', 'info');
-        document.getElementById('execution-output').textContent = '';
+        setExecutionStatus('running', 'Executing startup script...');
+        document.getElementById('execution-output').innerHTML = '';
         if (executionInterval) {
             clearInterval(executionInterval);
         }
@@ -109,10 +130,10 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showStatus('Execution started. Polling for output...', 'info');
+                showNotification('Execution started. Polling for output...', 'info');
                 pollExecutionOutput(data.execution_id);
             } else {
-                showStatus(`Error: ${data.error}`, 'danger');
+                setExecutionStatus('failed', `Error: ${data.error}`);
             }
         });
     }
@@ -123,30 +144,44 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        document.getElementById('execution-output').textContent = data.output;
+                        const outputHtml = data.output.split('\n').map(line => {
+                            let color = 'text-gray-300';
+                            if (line.toLowerCase().includes('error') || line.toLowerCase().includes('failed')) {
+                                color = 'text-red-400';
+                            } else if (line.toLowerCase().includes('success') || line.toLowerCase().includes('completed')) {
+                                color = 'text-green-400';
+                            }
+                            return `<div class="${color}">${line}</div>`;
+                        }).join('');
+                        document.getElementById('execution-output').innerHTML = outputHtml;
+
                         if (data.status === 'completed' || data.status === 'failed') {
                             clearInterval(executionInterval);
-                            showStatus(`Execution ${data.status}.`, data.status === 'completed' ? 'success' : 'danger');
+                            setExecutionStatus(data.status, `Execution ${data.status}.`);
                         }
-                    } else {
+                    }
+                    else {
                         clearInterval(executionInterval);
-                        showStatus(`Error polling for output: ${data.error}`, 'danger');
+                        setExecutionStatus('failed', `Error polling for output: ${data.error}`);
                     }
                 });
         }, 2000);
     }
 
-    function showStatus(message, type) {
-        const statusContainer = document.getElementById('execution-status');
-        const alert = `
-            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                ${message}
-                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-        `;
-        statusContainer.innerHTML = alert;
+    function setExecutionStatus(status, message) {
+        const indicator = document.getElementById('execution-status-indicator');
+        let statusHtml = '';
+
+        if (status === 'running') {
+            statusHtml = `<i class="fas fa-spinner fa-spin text-yellow-400 mr-2"></i> <span class="text-yellow-400">${message}</span>`;
+        } else if (status === 'completed') {
+            statusHtml = `<i class="fas fa-check-circle text-green-400 mr-2"></i> <span class="text-green-400">${message}</span>`;
+        } else if (status === 'failed') {
+            statusHtml = `<i class="fas fa-times-circle text-red-400 mr-2"></i> <span class="text-red-400">${message}</span>`;
+        } else {
+            statusHtml = `<i class="fas fa-question-circle text-gray-400 mr-2"></i> <span class="text-gray-400">${message}</span>`;
+        }
+        indicator.innerHTML = statusHtml;
     }
 </script>
 {% endblock %}

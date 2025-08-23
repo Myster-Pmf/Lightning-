@@ -1,3 +1,5 @@
+
+
 """
 Service for managing and executing startup scripts
 """
@@ -118,9 +120,14 @@ class StartupScriptService:
         self.executions[execution_id]["status"] = "running"
         output = []
 
-        def log_and_append(message):
+        def log_and_append(message, is_command=False, command_output=""):
             log_event("startup_script_execution", message, "event")
-            output.append(message)
+            if is_command:
+                output.append(f"> {message}")
+                if command_output:
+                    output.append(command_output)
+            else:
+                output.append(message)
             self.executions[execution_id]["output"] = "\n".join(output)
 
         try:
@@ -168,11 +175,9 @@ class StartupScriptService:
 
                 for command in commands.splitlines():
                     if command.strip():
-                        log_and_append(f"Executing: {command.strip()}")
                         send_command = f"tmux send-keys -t {session_name} '{command.strip()}' C-m"
                         result = self.file_service.run_remote_command(send_command)
-                        if not result["success"]:
-                            log_and_append(f"Failed to send command to tmux: {command}")
+                        log_and_append(command.strip(), is_command=True, command_output=result["stdout"] or result["stderr"])
 
                 # Capture output from tmux session
                 if self.config.get("debug_mode"):
