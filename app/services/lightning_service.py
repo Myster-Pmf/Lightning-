@@ -11,9 +11,10 @@ from ..utils.logging_utils import debug_print, log_event
 class LightningService:
     """Enhanced Lightning AI service"""
     
-    def __init__(self):
+    def __init__(self, startup_script_service=None):
         self.studio = None
         self.last_known_status = None
+        self.startup_script_service = startup_script_service
         self._initialize_studio()
     
     def _initialize_studio(self):
@@ -108,6 +109,10 @@ class LightningService:
                 "end_time": end_time.isoformat(),
                 "duration_seconds": duration
             })
+
+            if self.startup_script_service:
+                self.startup_script_service.execute_on_startup()
+
             return True, "Studio start command sent successfully"
             
         except Exception as e:

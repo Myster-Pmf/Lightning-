@@ -1,0 +1,108 @@
+
+
+{% extends "base.html" %}
+
+{% block title %}Startup Scripts{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mt-4">Startup Scripts</h1>
+    <p>Configure scripts to run automatically when your Lightning AI Studio starts.</p>
+
+    <div class="card">
+        <div class="card-header">
+            Configuration
+        </div>
+        <div class="card-body">
+            <form id="startup-script-form">
+                <div class="form-group form-check">
+                    <input type="checkbox" class="form-check-input" id="enabled">
+                    <label class="form-check-label" for="enabled">Enable Startup Scripts</label>
+                </div>
+
+                <div class="form-group mt-3">
+                    <label for="files">Files to Upload (one per line)</label>
+                    <textarea class="form-control" id="files" rows="3" placeholder="/path/to/local/file1.txt\n/path/to/local/file2.py"></textarea>
+                </div>
+
+                <div class="form-group mt-3">
+                    <label for="commands">Commands to Execute (one per line)</label>
+                    <textarea class="form-control" id="commands" rows="5" placeholder="echo 'Hello from tmux'\nls -la"></textarea>
+                </div>
+
+                <button type="button" class="btn btn-primary mt-3" onclick="saveConfig()">Save Configuration</button>
+                <button type="button" class="btn btn-secondary mt-3" onclick="executeNow()">Execute Now</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="status-container" class="mt-4"></div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        fetch('/api/startup-scripts/config')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('enabled').checked = data.config.enabled;
+                    document.getElementById('files').value = data.config.files.join('\n');
+                    document.getElementById('commands').value = data.config.commands;
+                }
+            });
+    });
+
+    function saveConfig() {
+        const config = {
+            enabled: document.getElementById('enabled').checked,
+            files: document.getElementById('files').value.split('\n').filter(f => f.trim() !== ''),
+            commands: document.getElementById('commands').value
+        };
+
+        fetch('/api/startup-scripts/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(config)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showStatus('Configuration saved successfully.', 'success');
+            } else {
+                showStatus(`Error: ${data.error}`, 'danger');
+            }
+        });
+    }
+
+    function executeNow() {
+        showStatus('Executing startup script... Please wait.', 'info');
+        fetch('/api/startup-scripts/execute', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showStatus('Startup script executed successfully.', 'success');
+            } else {
+                showStatus(`Error: ${data.error}`, 'danger');
+            }
+        });
+    }
+
+    function showStatus(message, type) {
+        const statusContainer = document.getElementById('status-container');
+        const alert = `
+            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+        `;
+        statusContainer.innerHTML = alert;
+    }
+</script>
+{% endblock %}
+

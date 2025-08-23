@@ -12,9 +12,11 @@ from .routes.main_routes import main_bp
 from .routes.api_routes import api_bp
 from .routes.scheduler_routes import scheduler_bp
 from .routes.files_routes import files_bp
+from .routes.startup_scripts_routes import startup_scripts_bp
 from .services.lightning_service import LightningService
 from .services.scheduler_service import SchedulerService
 from .services.file_service import FileService
+from .services.startup_script_service import StartupScriptService
 from .utils.logging_utils import log_event
 
 def create_dashboard_app():
@@ -44,25 +46,35 @@ def create_dashboard_app():
     
     # Initialize services with error handling
     try:
-        lightning_service = LightningService()
+        file_service = FileService()
+        print("File service initialized successfully")
+    except Exception as e:
+        print(f"Error initializing File service: {e}")
+        file_service = None
+
+    try:
+        startup_script_service = StartupScriptService(None, file_service)
+        print("Startup script service initialized successfully")
+    except Exception as e:
+        print(f"Error initializing Startup script service: {e}")
+        startup_script_service = None
+
+    try:
+        lightning_service = LightningService(startup_script_service)
         print("Lightning service initialized successfully")
     except Exception as e:
         print(f"Error initializing Lightning service: {e}")
         lightning_service = None
-    
+
+    if startup_script_service:
+        startup_script_service.lightning_service = lightning_service
+
     try:
         scheduler_service = SchedulerService()
         print("Scheduler service initialized successfully")
     except Exception as e:
         print(f"Error initializing Scheduler service: {e}")
         scheduler_service = None
-    
-    try:
-        file_service = FileService()
-        print("File service initialized successfully")
-    except Exception as e:
-        print(f"Error initializing File service: {e}")
-        file_service = None
     
     # Pass studio instance to file service for remote operations
     if file_service and lightning_service and lightning_service.studio:
@@ -73,6 +85,7 @@ def create_dashboard_app():
     app.config['LIGHTNING_SERVICE'] = lightning_service
     app.config['SCHEDULER_SERVICE'] = scheduler_service
     app.config['FILE_SERVICE'] = file_service
+    app.config['STARTUP_SCRIPT_SERVICE'] = startup_script_service
     app.config['ASYNC_TASKS'] = {}
     
     # Pass lightning service to scheduler for execution
@@ -85,6 +98,7 @@ def create_dashboard_app():
     app.register_blueprint(api_bp, url_prefix='/api')
     app.register_blueprint(scheduler_bp, url_prefix='/scheduler')
     app.register_blueprint(files_bp, url_prefix='/files')
+    app.register_blueprint(startup_scripts_bp)
     
     # Start background services
     def start_background_services():
