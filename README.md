@@ -2,6 +2,7 @@
 
 A comprehensive web dashboard for managing Lightning AI studios with advanced features including scheduling, file management, and automation.
 
+
 ## Features
 
 ### 🎛️ Enhanced Dashboard
