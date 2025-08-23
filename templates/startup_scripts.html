@@ -1,5 +1,3 @@
-
-
 {% extends "base.html" %}
 
 {% block title %}Startup Scripts{% endblock %}
@@ -9,37 +7,57 @@
     <h1 class="mt-4">Startup Scripts</h1>
     <p>Configure scripts to run automatically when your Lightning AI Studio starts.</p>
 
-    <div class="card">
-        <div class="card-header">
-            Configuration
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    Configuration
+                </div>
+                <div class="card-body">
+                    <form id="startup-script-form">
+                        <div class="form-group form-check">
+                            <input type="checkbox" class="form-check-input" id="enabled">
+                            <label class="form-check-label" for="enabled">Enable Startup Scripts</label>
+                        </div>
+
+                        <div class="form-group mt-3">
+                            <label for="files">Files to Upload (one per line)</label>
+                            <textarea class="form-control" id="files" rows="3" placeholder="/path/to/local/file1.txt\n/path/to/local/file2.py"></textarea>
+                        </div>
+
+                        <div class="form-group mt-3">
+                            <label for="commands">Commands to Execute (one per line)</label>
+                            <textarea class="form-control" id="commands" rows="5" placeholder="echo 'Hello from tmux'\nls -la"></textarea>
+                        </div>
+
+                        <div class="form-group form-check mt-3">
+                            <input type="checkbox" class="form-check-input" id="debug_mode">
+                            <label class="form-check-label" for="debug_mode">Enable Debug Mode</label>
+                        </div>
+
+                        <button type="button" class="btn btn-primary mt-3" onclick="saveConfig()">Save Configuration</button>
+                        <button type="button" class="btn btn-secondary mt-3" onclick="executeNow()">Execute Now</button>
+                    </form>
+                </div>
+            </div>
         </div>
-        <div class="card-body">
-            <form id="startup-script-form">
-                <div class="form-group form-check">
-                    <input type="checkbox" class="form-check-input" id="enabled">
-                    <label class="form-check-label" for="enabled">Enable Startup Scripts</label>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    Execution Status & Output
                 </div>
-
-                <div class="form-group mt-3">
-                    <label for="files">Files to Upload (one per line)</label>
-                    <textarea class="form-control" id="files" rows="3" placeholder="/path/to/local/file1.txt\n/path/to/local/file2.py"></textarea>
+                <div class="card-body">
+                    <div id="execution-status"></div>
+                    <pre id="execution-output" class="bg-dark text-white p-3" style="min-height: 200px; max-height: 400px; overflow-y: auto;"></pre>
                 </div>
-
-                <div class="form-group mt-3">
-                    <label for="commands">Commands to Execute (one per line)</label>
-                    <textarea class="form-control" id="commands" rows="5" placeholder="echo 'Hello from tmux'\nls -la"></textarea>
-                </div>
-
-                <button type="button" class="btn btn-primary mt-3" onclick="saveConfig()">Save Configuration</button>
-                <button type="button" class="btn btn-secondary mt-3" onclick="executeNow()">Execute Now</button>
-            </form>
+            </div>
         </div>
     </div>
-
-    <div id="status-container" class="mt-4"></div>
 </div>
 
 <script>
+    let executionInterval;
+
     document.addEventListener('DOMContentLoaded', function() {
         fetch('/api/startup-scripts/config')
             .then(response => response.json())
@@ -48,6 +66,7 @@
                     document.getElementById('enabled').checked = data.config.enabled;
                     document.getElementById('files').value = data.config.files.join('\n');
                     document.getElementById('commands').value = data.config.commands;
+                    document.getElementById('debug_mode').checked = data.config.debug_mode;
                 }
             });
     });
@@ -56,7 +75,8 @@
         const config = {
             enabled: document.getElementById('enabled').checked,
             files: document.getElementById('files').value.split('\n').filter(f => f.trim() !== ''),
-            commands: document.getElementById('commands').value
+            commands: document.getElementById('commands').value,
+            debug_mode: document.getElementById('debug_mode').checked
         };
 
         fetch('/api/startup-scripts/config', {
@@ -78,21 +98,46 @@
 
     function executeNow() {
         showStatus('Executing startup script... Please wait.', 'info');
+        document.getElementById('execution-output').textContent = '';
+        if (executionInterval) {
+            clearInterval(executionInterval);
+        }
+
         fetch('/api/startup-scripts/execute', {
             method: 'POST'
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showStatus('Startup script executed successfully.', 'success');
+                showStatus('Execution started. Polling for output...', 'info');
+                pollExecutionOutput(data.execution_id);
             } else {
                 showStatus(`Error: ${data.error}`, 'danger');
             }
         });
     }
 
+    function pollExecutionOutput(executionId) {
+        executionInterval = setInterval(() => {
+            fetch(`/api/startup-scripts/output/${executionId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('execution-output').textContent = data.output;
+                        if (data.status === 'completed' || data.status === 'failed') {
+                            clearInterval(executionInterval);
+                            showStatus(`Execution ${data.status}.`, data.status === 'completed' ? 'success' : 'danger');
+                        }
+                    } else {
+                        clearInterval(executionInterval);
+                        showStatus(`Error polling for output: ${data.error}`, 'danger');
+                    }
+                });
+        }, 2000);
+    }
+
     function showStatus(message, type) {
-        const statusContainer = document.getElementById('status-container');
+        const statusContainer = document.getElementById('execution-status');
         const alert = `
             <div class="alert alert-${type} alert-dismissible fade show" role="alert">
                 ${message}
@@ -105,4 +150,3 @@
     }
 </script>
 {% endblock %}
-

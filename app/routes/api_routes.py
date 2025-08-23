@@ -224,10 +224,13 @@ def get_machine_types():
 
 # Python interpreter session (from original code)
 class PythonInterpreter:
-    def __init__(self):
+    def __init__(self, file_service):
+        self.file_service = file_service
         self.reset()
 
     def execute(self, code):
+        if code.startswith("tmux:"):
+            return self.execute_tmux_command(code)
         try:
             try:
                 result = eval(code, self.globals, self.locals)
@@ -239,6 +242,25 @@ class PythonInterpreter:
         except Exception as e:
             import traceback
             return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
+
+    def execute_tmux_command(self, code):
+        parts = code.split(":", 1)
+        command = parts[1]
+        if command == "list":
+            remote_command = "tmux list-sessions"
+        elif command.startswith("attach"):
+            session = command.split(" ", 1)[1]
+            remote_command = f"tmux attach-session -t {session}"
+        elif command.startswith("send"):
+            parts = command.split(" ", 2)
+            session = parts[1]
+            cmd_to_send = parts[2]
+            remote_command = f"tmux send-keys -t {session} '{cmd_to_send}' C-m"
+        else:
+            return {"success": False, "error": "Invalid tmux command"}
+
+        result = self.file_service.run_remote_command(remote_command)
+        return {"success": result["success"], "result": result["stdout"] or result["stderr"]}
 
     def reset(self):
         import os
@@ -254,7 +276,13 @@ class PythonInterpreter:
             exec(f"studio = Studio('{studio_name}', teamspace='{teamspace}', user='{username}', create_ok=True)", self.globals)
 
 # Global interpreter instance
-python_interpreter = PythonInterpreter()
+python_interpreter = None
+
+def get_python_interpreter():
+    global python_interpreter
+    if python_interpreter is None:
+        python_interpreter = PythonInterpreter(current_app.config.get('FILE_SERVICE'))
+    return python_interpreter
 
 @api_bp.route('/terminal/python', methods=['POST'])
 def execute_python():
@@ -263,12 +291,14 @@ def execute_python():
     if not data or 'code' not in data:
         return jsonify({"success": False, "error": "No code provided."}), 400
     
-    return jsonify(python_interpreter.execute(data['code']))
+    interpreter = get_python_interpreter()
+    return jsonify(interpreter.execute(data['code']))
 
 @api_bp.route('/terminal/reset', methods=['POST'])
 def reset_interpreter():
     """Reset Python interpreter"""
-    python_interpreter.reset()
+    global python_interpreter
+    python_interpreter = None
     return jsonify({"success": True, "message": "Python interpreter session has been reset."})
 
 @api_bp.route('/debug/services')

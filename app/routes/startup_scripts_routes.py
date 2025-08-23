@@ -1,8 +1,7 @@
-
 """
 Routes for managing startup scripts
 """
-from flask import Blueprint, render_template, request, jsonify, current_app, flash, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, current_app
 
 startup_scripts_bp = Blueprint('startup_scripts', __name__)
 
@@ -43,5 +42,18 @@ def execute_startup_script_now():
         startup_script_service = current_app.config['STARTUP_SCRIPT_SERVICE']
         result = startup_script_service.execute_now()
         return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@startup_scripts_bp.route('/api/startup-scripts/output/<execution_id>')
+def get_startup_script_output(execution_id):
+    """Get the output of a startup script execution"""
+    try:
+        startup_script_service = current_app.config['STARTUP_SCRIPT_SERVICE']
+        execution = startup_script_service.get_execution_status(execution_id)
+        if execution:
+            return jsonify({"success": True, "status": execution["status"], "output": execution["output"]})
+        else:
+            return jsonify({"success": False, "error": "Execution not found"}), 404
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
